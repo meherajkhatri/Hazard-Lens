@@ -18,6 +18,17 @@ Download the weights **before** the venue (Ultralytics fetches `yolov8n-pose.pt`
 into the working directory on first run). With the weights present, the
 real-model tests run too instead of skipping.
 
+## Before going live
+
+The backend runs on Dev 2's laptop. In `cv_engine/.env` set `BACKEND_URL=http://<dev2-ip>:8000`, then:
+
+```bash
+python -m cv_engine.preflight     # prints READY, or exactly what to fix
+```
+
+Dev 2 must start the backend with `--host 0.0.0.0` (the README's `127.0.0.1` only accepts
+connections from Dev 2's own laptop), and both laptops should share a phone hotspot.
+
 ## Run
 
 ```bash
