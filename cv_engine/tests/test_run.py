@@ -129,3 +129,60 @@ def test_main_end_to_end_on_generated_clip(tmp_path, monkeypatch, caplog):
     finally:
         server.should_exit = True
         thread.join(5)
+
+
+def test_per_camera_flags_override_shared_config():
+    from cv_engine.run import apply_overrides, parse_args
+
+    base = EngineConfig(CAMERA_ID="zone-1-cam-1", ZONE_ID="Zone 1", CAMERA_INDEX=0, STREAM_PORT=8001, API_KEY="k")
+    cfg = apply_overrides(base, parse_args(["--camera-id", "corridor-cam-1", "--zone-id", "Forklift Corridor",
+                                            "--camera-index", "2", "--port", "8003"]))
+    assert (cfg.CAMERA_ID, cfg.ZONE_ID, cfg.CAMERA_INDEX, cfg.STREAM_PORT) == ("corridor-cam-1", "Forklift Corridor", 2, 8003)
+    assert cfg.API_KEY == "k"  # untouched settings still come from the shared config
+    assert apply_overrides(base, parse_args([])) == base
+
+
+def test_list_cameras_without_hardware_returns_empty():
+    from cv_engine.run import list_cameras
+
+    assert list_cameras() == []
+
+
+@pytest.mark.skipif(not WEIGHTS.exists(), reason="yolov8n-pose.pt not available")
+def test_two_cameras_run_side_by_side_against_one_backend(tmp_path, monkeypatch):
+    """Two engines with different camera ids and ports share one backend."""
+    pytest.importorskip("ultralytics")
+    import socket
+
+    from cv_engine import run
+    from cv_engine.tests.test_emitter import _start_backend
+
+    clip = tmp_path / "empty.avi"
+    writer = cv2.VideoWriter(str(clip), cv2.VideoWriter_fourcc(*"MJPG"), 30, (320, 240))
+    for i in range(30):
+        writer.write(np.full((240, 320, 3), i * 5 % 255, dtype=np.uint8))
+    writer.release()
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    server, thread = _start_backend(port, tmp_path)
+    monkeypatch.setattr(run, "EngineConfig", lambda: EngineConfig(
+        BACKEND_URL=f"http://127.0.0.1:{port}", MODEL_PATH=str(WEIGHTS), PUBLIC_HOST="127.0.0.1"))
+    errors = []
+
+    def camera(cam_id: str):
+        try:
+            run.main(["--video", str(clip), "--no-window", "--camera-id", cam_id, "--port", "0"])
+        except BaseException as exc:  # noqa: BLE001 - surface any failure to the test
+            errors.append(exc)
+
+    try:
+        engines = [threading.Thread(target=camera, args=(cam,)) for cam in ("zone-1-cam-1", "zone-1-cam-2")]
+        for engine in engines:
+            engine.start()
+        for engine in engines:
+            engine.join(120)
+        assert errors == []
+    finally:
+        server.should_exit = True
+        thread.join(5)
