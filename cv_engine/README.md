@@ -5,6 +5,12 @@ Full design and the code-terms glossary are in [`docs/dev1-cv-engine-plan.md`](.
 
 ## Setup (from the repo root)
 
+**Use Python 3.10–3.12.** Ultralytics 8.3.0 needs numpy < 2, which has no prebuilt wheels for
+Python 3.13+; pip then tries to compile numpy and fails with "Unknown compiler(s)" on Windows.
+On an Nvidia laptop, install the CUDA build of PyTorch before the requirements
+(`pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124`), otherwise
+pip installs the CPU-only build.
+
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r cv_engine/requirements.txt
