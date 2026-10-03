@@ -51,3 +51,4 @@ class FallEvent:
     drop_velocity: float  # peak, body-heights / second
     keypoint_conf: float
     bbox: BBox
+    manual: bool = False  # True when raised with the F key, not by detection

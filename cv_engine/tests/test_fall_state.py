@@ -147,3 +147,15 @@ def test_tracks_are_forgotten_after_ttl():
     assert detector.state_of(1) is FallState.DOWN
     detector.update([], now=100.0)
     assert detector.state_of(1) is FallState.UPRIGHT
+
+
+def test_force_event_marks_down_and_flags_manual():
+    detector = FallDetector()
+    event = detector.force_event(make_pose(track_id=4), now=10.0)
+    assert event.manual and event.track_id == 4
+    assert detector.state_of(4) is FallState.DOWN
+    # A real fall right after doesn't double-alert: cooldown applies.
+    scene = Scene(detector, track_id=4)
+    scene.t = 10.0
+    fall(get_up(scene)).hold(2.0)
+    assert scene.events == []

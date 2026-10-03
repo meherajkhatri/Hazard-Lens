@@ -47,7 +47,15 @@ def test_fall_payload_matches_plan_contract():
     assert m["event_id"] == "zone-1-cam-1-3-1791062047412" == event_id(CAMERA_ID, EVENT)
     assert m["zone_id"] == ZONE_ID and m["track_id"] == 3
     assert m["latency_ms"] == 1252
+    assert m["trigger"] == "auto"
     assert m["snapshot_url"] == "http://10.0.0.5:8001/snapshot/zone-1-cam-1-3-1791062047412.jpg"
+
+
+def test_manual_event_is_labelled_manual():
+    from dataclasses import replace
+
+    p = fall_payload(replace(EVENT, manual=True), CAMERA_ID, ZONE_ID, sent_at=EVENT.timestamp)
+    assert p["metadata"]["trigger"] == "manual"
 
 
 def test_metadata_is_flat_and_has_no_nulls():

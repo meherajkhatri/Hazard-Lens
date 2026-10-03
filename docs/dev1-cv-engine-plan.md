@@ -113,12 +113,13 @@ POST /api/v1/telemetry
     "drop_velocity": 0.92,
     "keypoint_conf": 0.88,
     "snapshot_url": "http://<dev1-ip>:8001/snapshot/zone-1-cam-1-3-1791062047412.jpg",
-    "latency_ms": 640
+    "latency_ms": 1252,
+    "trigger": "auto"
   }
 }
 ```
 
-`event_id` = `<CAMERA_ID>-<track_id>-<epoch ms>`. `latency_ms` = time from the start of the drop to the moment the event is sent.
+`event_id` = `<CAMERA_ID>-<track_id>-<epoch ms>`. `latency_ms` = time from the start of the drop to the moment the event is sent. `trigger` is `"auto"` for a detected fall and `"manual"` for the `F`-key backup, so the logs never pass a manual trigger off as a detection.
 
 Mapping from the original plan: `zone_id` → `metadata.zone_id`, `pose_event` → `event_type`, `confidence_score` → `pose_confidence`.
 

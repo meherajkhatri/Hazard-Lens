@@ -49,6 +49,7 @@ def fall_payload(
         "drop_velocity": round(event.drop_velocity, 2),
         "keypoint_conf": round(event.keypoint_conf, 2),
         "latency_ms": int(round((sent_at - event.drop_started_at) * 1000)),
+        "trigger": "manual" if event.manual else "auto",
     }
     if snapshot_base_url:
         # Only included when known: metadata values may not be null.

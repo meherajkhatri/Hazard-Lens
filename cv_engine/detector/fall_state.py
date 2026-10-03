@@ -42,6 +42,29 @@ class FallDetector:
         track = self._tracks.get(track_id)
         return track.state if track else FallState.UPRIGHT
 
+    def force_event(self, person: PersonPose, now: float) -> FallEvent | None:
+        """Manual trigger (F key) for the demo. Marks the person DOWN and returns
+        a FallEvent flagged manual=True, or None if the pose can't be measured."""
+        features = compute_features(person)
+        if features is None:
+            return None
+        track = self._tracks.setdefault(person.track_id, _Track(last_seen=now))
+        track.state = FallState.DOWN
+        track.upright_since = None
+        track.last_event_at = now
+        return FallEvent(
+            track_id=person.track_id,
+            timestamp=now,
+            drop_started_at=now,
+            pose_confidence=pose_confidence(features, 0.0),
+            torso_angle_deg=features.torso_angle_deg,
+            bbox_aspect=features.bbox_aspect,
+            drop_velocity=0.0,
+            keypoint_conf=features.keypoint_conf,
+            bbox=person.bbox,
+            manual=True,
+        )
+
     def update(self, people: list[PersonPose], now: float) -> list[FallEvent]:
         """Feed one frame. Returns the FallEvents confirmed on this frame."""
         events: list[FallEvent] = []

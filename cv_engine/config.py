@@ -47,5 +47,7 @@ class EngineConfig:
     MODEL_PATH: str = os.getenv("MODEL_PATH", "yolov8n-pose.pt")
     # "cuda" (Nvidia), "mps" (Apple Silicon) or "cpu".
     DEVICE: str = os.getenv("DEVICE", "cpu")
+    # Host other laptops use to reach this one, for snapshot_url. Auto-detected if empty.
+    PUBLIC_HOST: str = os.getenv("PUBLIC_HOST", "")
     HEARTBEAT_INTERVAL_S: float = 5.0
     thresholds: FallThresholds = field(default_factory=FallThresholds)
