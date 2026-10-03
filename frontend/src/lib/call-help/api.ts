@@ -33,6 +33,20 @@ export async function setIncidentStatus(id: string, status: "acknowledged" | "re
   return normalizeIncident(row);
 }
 
+export async function sendDemoFall(zoneId = "Forklift Corridor 1") {
+  return request<{ status: string; incident?: BackendIncident }>("/api/v1/telemetry", {
+    method: "POST",
+    body: JSON.stringify({
+      camera_id: "demo-cam-01",
+      zone_id: zoneId,
+      timestamp: new Date().toISOString(),
+      event_type: "fall",
+      pose_confidence: 0.94,
+      metadata: { source: "frontend_demo" },
+    }),
+  });
+}
+
 export async function askSafetyCoach(question: string, zoneId?: string): Promise<CoachResult> {
   return request<CoachResult>("/api/v1/coach/chat", {
     method: "POST",
@@ -52,7 +66,7 @@ export function connectIncidentSocket(onIncident: (incident: Incident) => void, 
         onIncident(normalizeIncident(message.incident as BackendIncident));
       }
     } catch {
-      // Ignore malformed realtime messages; REST refresh remains available.
+      // REST refresh remains available if a malformed realtime event arrives.
     }
   };
   return () => socket.close();
