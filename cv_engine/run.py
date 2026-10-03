@@ -4,6 +4,7 @@
     python -m cv_engine.run --video clip.mp4     # replay a recorded clip
     python -m cv_engine.run --video clip.mp4 --loop --skeleton-only
     python -m cv_engine.run --list-cameras       # which camera indexes work
+    python -m cv_engine.run --camera-url http://192.168.1.23:8080/video   # phone camera app over Wi-Fi
 
 Several cameras: one process per camera, each with its own id, index and port:
     python -m cv_engine.run --camera-id zone-1-cam-1 --zone-id "Zone 1" --camera-index 1 --port 8001
@@ -16,12 +17,12 @@ import argparse
 import dataclasses
 import logging
 import socket
-import sys
 import time
 
 import cv2
 import numpy as np
 
+from cv_engine.camera import LiveCamera, list_cameras, open_camera, open_stream
 from cv_engine.config import EngineConfig
 from cv_engine.detector.fall_state import FallDetector
 from cv_engine.detector.types import FallEvent, PersonPose
@@ -30,31 +31,6 @@ from cv_engine.transport.emitter import event_id, fall_payload, heartbeat_payloa
 
 log = logging.getLogger("cv_engine")
 FPS_SMOOTHING = 0.9
-# Lower resolution keeps several USB webcams within one laptop's USB bandwidth;
-# the pose model resizes to 640 anyway.
-CAMERA_WIDTH, CAMERA_HEIGHT = 640, 480
-MAX_CAMERA_INDEX = 6
-
-
-def open_camera(index: int) -> cv2.VideoCapture:
-    # DirectShow opens faster on Windows and handles several USB webcams better.
-    backend = cv2.CAP_DSHOW if sys.platform == "win32" else cv2.CAP_ANY
-    capture = cv2.VideoCapture(index, backend)
-    capture.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
-    capture.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
-    return capture
-
-
-def list_cameras() -> list[tuple[int, int, int]]:
-    """(index, width, height) for every camera index that delivers a frame."""
-    found = []
-    for index in range(MAX_CAMERA_INDEX):
-        capture = open_camera(index)
-        ok, frame = capture.read() if capture.isOpened() else (False, None)
-        if ok and frame is not None:
-            found.append((index, frame.shape[1], frame.shape[0]))
-        capture.release()
-    return found
 
 
 def detect_public_host() -> str:
@@ -124,7 +100,7 @@ class Engine:
             self.emitter.send(heartbeat_payload(self.cfg.CAMERA_ID, self.cfg.ZONE_ID, now, self.fps, len(self.people)))
 
         if self.streamer:
-            self.streamer.status = {"fps": round(self.fps, 1), "people_detected": len(self.people)}
+            self.streamer.status = {"fps": round(self.fps, 1), "people_detected": len(self.people), "camera": "ok"}
             self.streamer.update_frame(annotated)
         return annotated, events
 
@@ -140,6 +116,7 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument("--camera-id", help="override CAMERA_ID, e.g. zone-1-cam-2")
     parser.add_argument("--zone-id", help='override ZONE_ID, e.g. "Forklift Corridor"')
     parser.add_argument("--camera-index", type=int, help="override CAMERA_INDEX (see --list-cameras)")
+    parser.add_argument("--camera-url", help="network stream from a phone camera app, instead of --camera-index")
     parser.add_argument("--port", type=int, help="override STREAM_PORT; each camera needs its own")
     parser.add_argument("--list-cameras", action="store_true", help="show which camera indexes work, then exit")
     return parser.parse_args(argv)
@@ -150,6 +127,7 @@ def apply_overrides(cfg: EngineConfig, args: argparse.Namespace) -> EngineConfig
         "CAMERA_ID": args.camera_id,
         "ZONE_ID": args.zone_id,
         "CAMERA_INDEX": args.camera_index,
+        "CAMERA_URL": args.camera_url,
         "STREAM_PORT": args.port,
         "DEVICE": args.device,
     }
@@ -187,25 +165,44 @@ def main(argv=None) -> None:
                     skeleton_only=args.skeleton_only, snapshot_base_url=snapshot_base_url)
     log.info("stream: %s/stream   backend: %s", snapshot_base_url, cfg.BACKEND_URL)
 
-    capture = cv2.VideoCapture(args.video) if args.video else open_camera(cfg.CAMERA_INDEX)
-    if not capture.isOpened():
-        raise SystemExit(f"could not open {'video ' + args.video if args.video else 'camera ' + str(cfg.CAMERA_INDEX)}")
-    video_fps = capture.get(cv2.CAP_PROP_FPS) or 30.0
+    if args.video:
+        capture = cv2.VideoCapture(args.video)
+        if not capture.isOpened():
+            raise SystemExit(f"could not open video {args.video}")
+        video_fps = capture.get(cv2.CAP_PROP_FPS) or 30.0
+        camera = None
+    else:
+        capture = None
+        source = cfg.CAMERA_URL or f"camera index {cfg.CAMERA_INDEX}"
+        opener = (lambda: open_stream(cfg.CAMERA_URL)) if cfg.CAMERA_URL else (lambda: open_camera(cfg.CAMERA_INDEX))
+        camera = LiveCamera(opener, source)
+        if not camera.open():
+            log.warning("could not open %s yet; will keep retrying", source)
     clock_start, frame_index = time.time(), 0
     force_fall = False
 
     try:
         while True:
-            ok, frame = capture.read()
-            if not ok:
-                if args.video and args.loop:
-                    capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            if camera is None:
+                ok, frame = capture.read()
+                if not ok:
+                    if args.loop:
+                        capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                        continue
+                    break
+                # Replays use the clip's own timeline so a slow laptop doesn't
+                # stretch a fall and hide its drop_velocity.
+                now = clock_start + frame_index / video_fps
+                frame_index += 1
+            else:
+                frame = camera.read()
+                if frame is None:
+                    streamer.status = {**streamer.status, "camera": "reconnecting"}
+                    if not args.no_window and cv2.waitKey(50) & 0xFF == ord("q"):
+                        break
+                    time.sleep(0.05)
                     continue
-                break
-            # Replays use the clip's own timeline so a slow laptop doesn't
-            # stretch a fall and hide its drop_velocity.
-            now = clock_start + frame_index / video_fps if args.video else time.time()
-            frame_index += 1
+                now = time.time()
 
             annotated, _ = engine.process(frame, now, force_fall=force_fall)
             force_fall = False
@@ -219,7 +216,10 @@ def main(argv=None) -> None:
     except KeyboardInterrupt:
         pass
     finally:
-        capture.release()
+        if capture is not None:
+            capture.release()
+        if camera is not None:
+            camera.release()
         cv2.destroyAllWindows()
         emitter.close()
         streamer.stop()

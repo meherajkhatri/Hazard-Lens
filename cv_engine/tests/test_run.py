@@ -143,7 +143,7 @@ def test_per_camera_flags_override_shared_config():
 
 
 def test_list_cameras_without_hardware_returns_empty():
-    from cv_engine.run import list_cameras
+    from cv_engine.camera import list_cameras
 
     assert list_cameras() == []
 

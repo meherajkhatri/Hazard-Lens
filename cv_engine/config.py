@@ -53,6 +53,8 @@ class EngineConfig:
     CAMERA_ID: str = os.getenv("CAMERA_ID", "zone-1-cam-1")
     ZONE_ID: str = os.getenv("ZONE_ID", "Zone 1")
     CAMERA_INDEX: int = int(os.getenv("CAMERA_INDEX", "0"))
+    # Network stream from a phone camera app; used instead of CAMERA_INDEX when set.
+    CAMERA_URL: str = os.getenv("CAMERA_URL", "")
     BACKEND_URL: str = os.getenv("BACKEND_URL", "http://localhost:8000")
     # Must match the backend's API_KEY (sent as X-API-Key). Empty if the backend has none.
     API_KEY: str = os.getenv("API_KEY", "")

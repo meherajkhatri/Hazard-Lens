@@ -56,6 +56,11 @@ python -m cv_engine.run --camera-id zone-1-cam-2 --zone-id "Zone 1" --camera-ind
 python -m cv_engine.run --camera-id corridor-cam-1 --zone-id "Forklift Corridor" --camera-index 1 --port 8001   # on a second laptop
 ```
 
+**Phones as cameras.** Preferred: a USB webcam app (Iriun, DroidCam, Camo) so Windows sees the
+phone as a normal camera; use `--camera-index`. Over Wi-Fi: a camera app that serves a stream
+(e.g. Android "IP Webcam"), then `--camera-url http://<phone-ip>:8080/video`. Live cameras
+reconnect on their own if the phone drops out; `/health` shows `"camera": "reconnecting"` meanwhile.
+
 Webcams open at 640x480 so several fit in one laptop's USB bandwidth. Two cameras on one zone
 report the same fall twice; the backend's SMS cooldown must be per zone so only one text goes out.
 
