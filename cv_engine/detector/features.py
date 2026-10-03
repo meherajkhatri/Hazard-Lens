@@ -29,7 +29,7 @@ def _midpoint(kps: np.ndarray, a: int, b: int) -> np.ndarray:
     return (kps[a, :2] + kps[b, :2]) / 2.0
 
 
-def _body_scale(kps: np.ndarray, hip_mid: np.ndarray, torso_length: float) -> float:
+def _body_scale(kps: np.ndarray, torso_length: float, bbox_diagonal: float) -> float:
     ankles = [i for i in (L_ANKLE, R_ANKLE) if kps[i, 2] >= ANKLE_MIN_CONF]
     shoulder_mid = _midpoint(kps, L_SHOULDER, R_SHOULDER)
     if ankles:
@@ -37,7 +37,8 @@ def _body_scale(kps: np.ndarray, hip_mid: np.ndarray, torso_length: float) -> fl
         measured = float(np.linalg.norm(shoulder_mid - ankle_point))
     else:
         measured = TORSO_TO_BODY_RATIO * torso_length
-    return max(measured, MIN_BODY_TO_TORSO_RATIO * torso_length)
+    # A body can't be bigger than its own box; a stray keypoint can make it look so.
+    return min(max(measured, MIN_BODY_TO_TORSO_RATIO * torso_length), bbox_diagonal)
 
 
 def compute_features(person: PersonPose) -> PoseFeatures | None:
@@ -56,13 +57,15 @@ def compute_features(person: PersonPose) -> PoseFeatures | None:
 
     x1, y1, x2, y2 = person.bbox
     bbox_aspect = (x2 - x1) / max(y2 - y1, 1.0)
+    bbox_diagonal = math.hypot(x2 - x1, y2 - y1)
 
-    keypoint_conf = float(kps[[L_SHOULDER, R_SHOULDER, L_HIP, R_HIP], 2].mean())
+    # Minimum, not mean: one unreliable joint is enough to corrupt the torso angle.
+    keypoint_conf = float(kps[[L_SHOULDER, R_SHOULDER, L_HIP, R_HIP], 2].min())
 
     return PoseFeatures(
         torso_angle_deg=torso_angle_deg,
         bbox_aspect=float(bbox_aspect),
-        body_scale=_body_scale(kps, hip_mid, torso_length),
+        body_scale=_body_scale(kps, torso_length, bbox_diagonal),
         hip_y=float(hip_mid[1]),
         keypoint_conf=keypoint_conf,
     )

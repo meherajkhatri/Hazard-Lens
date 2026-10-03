@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from cv_engine.detector.features import compute_features, drop_velocity
-from cv_engine.detector.types import PersonPose
+from cv_engine.detector.types import L_ANKLE, R_ANKLE, R_SHOULDER, PersonPose
 from cv_engine.tests.synthetic import BODY_PX, TORSO_PX, make_pose
 
 
@@ -54,3 +54,17 @@ def test_drop_velocity_ignores_upward_movement_and_stale_samples():
     high = compute_features(make_pose(hip_y=400))
     assert drop_velocity([(0.0, low)], now=0.5, current=high, window_s=0.6) == 0.0
     assert drop_velocity([(0.0, high)], now=2.0, current=low, window_s=0.6) == 0.0
+
+
+def test_one_unreliable_joint_lowers_keypoint_conf():
+    person = make_pose()
+    person.keypoints[R_SHOULDER, 2] = 0.3
+    assert compute_features(person).keypoint_conf == pytest.approx(0.3)
+
+
+def test_body_scale_is_capped_by_bbox_diagonal():
+    person = make_pose()
+    person.keypoints[L_ANKLE, 1] += 5000  # stray ankle far outside the box
+    person.keypoints[R_ANKLE, 1] += 5000
+    x1, y1, x2, y2 = person.bbox
+    assert compute_features(person).body_scale <= ((x2 - x1) ** 2 + (y2 - y1) ** 2) ** 0.5

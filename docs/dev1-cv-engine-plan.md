@@ -51,9 +51,9 @@ Run everything **from the repo root** as a module: `python -m cv_engine.run` (ad
 | `PoseFeatures` | Per-frame features computed from a `PersonPose` | — |
 | `torso_angle_deg` | Angle of hip-mid → shoulder-mid vs. vertical | 0° upright, 90° horizontal |
 | `bbox_aspect` | bbox width / height | ratio |
-| `body_scale` | Shoulder-mid → ankle-mid distance (orientation-independent "body height"); falls back to 3 × torso length if ankles aren't visible | pixels |
+| `body_scale` | Shoulder-mid → ankle-mid distance (orientation-independent "body height"); falls back to 3 × torso length if ankles aren't visible; capped at the bbox diagonal | pixels |
 | `hip_y` | Hip-mid y coordinate (image y grows downward) | pixels |
-| `keypoint_conf` | Mean confidence of shoulders + hips (keypoints 5, 6, 11, 12) | 0–1 |
+| `keypoint_conf` | **Lowest** confidence among shoulders + hips (keypoints 5, 6, 11, 12). Minimum, not mean, so one bad joint can't hide behind three good ones | 0–1 |
 | `drop_velocity` | How fast `hip_y` moves down, normalized by `body_scale` | body-heights / second |
 | `FallState` | `UPRIGHT` (green box), `FALLING` (amber), `DOWN` (red) | enum |
 | `FallDetector` | Holds one state machine per `track_id`; `update(people, now)` → `list[FallEvent]` | — |
@@ -73,7 +73,7 @@ Run per tracked person (ByteTrack ID from `model.track`). Use COCO keypoints: sh
 1. **`torso_angle_deg`**: angle between (hip-mid → shoulder-mid) and vertical. Standing ≈ 0–20°, on the floor ≈ 70–90°.
 2. **`bbox_aspect`**: `w / h`. Standing < 0.6, lying > 1.0.
 3. **`drop_velocity`**: downward movement of `hip_y` over the last `FALL_DROP_WINDOW_S` (0.6s), divided by `body_scale` and by elapsed time. Normalizing by `body_scale` means it doesn't depend on distance from the camera.
-4. **`keypoint_conf`**: mean confidence of shoulders + hips. Frames below `MIN_KEYPOINT_CONF` (0.4) are skipped.
+4. **`keypoint_conf`**: lowest confidence among shoulders + hips. Frames below `MIN_KEYPOINT_CONF` (0.4) are skipped.
 
 **State machine (`FallDetector`, one per `track_id`)**. Threshold names are the fields of `FallThresholds` in `config.py`:
 ```
