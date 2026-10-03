@@ -4,21 +4,22 @@ FastAPI replaces Express by team decision. Each stage must pass before work adva
 to the next stage. Existing code and mocked tests are not proof of live integration.
 Updated October 3, 2026.
 
-## Hours 0–3 — current gate: BLOCKED
+## Hours 0–3 — PASSED
 
 | Requirement | Evidence | Status |
 | --- | --- | --- |
 | Git repository and backend branch | `origin/backend`, first implementation commit `7bfbf6b` | Complete |
 | Python/API environment | Project virtual environment, dependency check, test suite, and real Uvicorn HTTP startup test | Verified locally |
 | JSON telemetry contract | `app/schemas.py`, examples and retry rules in `README.md` | Implemented and tested; team handoff still needed |
-| Supabase incidents schema | `supabase/schema.sql` | SQL prepared; execution on a real project unverified |
-| Working Supabase persistence | `python -m app.verify_setup --write-probe` | Blocked: no configured Supabase URL/key |
+| Supabase incidents schema | `supabase/schema.sql` | Executed successfully in project `gygghvgwrcalviwjsspd` |
+| Working Supabase persistence | `python -m app.verify_setup --write-probe` | Passed: columns, insert, readback, uniqueness, update |
 
-Setup access checked: Supabase dashboard opens to sign-in in the in-app browser.
-User authentication is required before cloud provisioning can continue. No local Docker or
-PostgreSQL executable is available. The ignored `.env` now has a generated local API key.
-The real server startup test verifies the HTTP listener, database readiness, API authentication,
-and published telemetry schema. This does not substitute for Supabase verification.
+Live project: `call-help-safety`, CALL_HELP organization, free plan, East US (North Virginia).
+The user completed sign-in and project/password creation. The schema was installed through the SQL editor.
+The existing server key and project URL are configured only in ignored `backend/.env`.
+Live probe ID: `ff9094c4-11d5-4edf-8b14-a9d7a18ccfaa`.
+SQL verification returned RLS enabled=true, anonymous SELECT=false, authenticated/browser SELECT=false,
+and service-role INSERT=true. The real Uvicorn startup test also verifies local HTTP readiness and auth.
 
 To close this gate:
 
@@ -34,7 +35,7 @@ It calls Supabase directly and never calls Twilio or the telemetry alert flow. R
 is available without `--write-probe`, but does not pass the gate because write access remains untested.
 The command returns nonzero for missing configuration, incomplete checks, or failures; it never prints keys.
 
-## Hours 3–10 — NOT ADVANCED
+## Hours 3–10 — IN PROGRESS
 
 Existing implementation: REST ingestion, deduplication, persistent incident log, Twilio adapter,
 recipient allowlist, and labeled dry-run results. Local/mocked tests passed in the initial milestone.
