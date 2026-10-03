@@ -5,6 +5,17 @@ and a Gemini Safety Coach. Camera inference and video streaming belong to the CV
 this API accepts event JSON, not video frames. The existing frontend still uses sample data.
 
 See [Dev 2 checkpoints](DEV2_CHECKPOINTS.md) for the sequential verification gates and live setup probe.
+After configuring Supabase, `python -m app.verify_ingestion` exercises the actual FastAPI routes
+in-process against the live database, retains a labeled resolved test incident, and always forces SMS
+dry-run. It checks ingestion, retry handling, acknowledgement/resolution, and persistence across app restart.
+This verifies the API/database path, not delivery of a real SMS or the network listener.
+
+`python -m app.verify_realtime` starts a temporary localhost Uvicorn server and connects real
+camera/dashboard WebSocket clients. It verifies authentication, invalid messages, fall broadcast,
+retry deduplication, reconnect + REST resync, Coach retrieval, and resolution updates using configured
+storage. It retains a labeled resolved probe incident, reports one observed broadcast latency, and
+always forces dry-run SMS and the local Coach summary. This is a backend integration probe, not
+proof of the team's physical camera, frontend UI, live Gemini, or SMS delivery. It stops its server on exit.
 
 ## Run locally (Python 3.12)
 
@@ -90,6 +101,28 @@ Each qualifying event is persisted and broadcast. Only falls trigger automatic S
 `ALERT_COOLDOWN_SECONDS` (default 30) suppresses additional SMS for the same camera, zone, and event
 type; it does not suppress incident records or dashboard events. Set it to 0 if each distinct event
 must alert, including separate people in the same camera view.
+
+### Dev 1 handoff and rehearsal
+
+Keep `MIN_CONFIDENCE=0.7` (or a deliberately agreed lower threshold). Events at exactly 0.7
+are accepted; below-threshold events return `ignored`, whereas a wrong API key returns 401
+over REST or closes the WebSocket with code 1008. A CV log saying `check API_KEY` means to
+compare the CV `API_KEY` with the backend's `API_KEY`, not the Supabase server key.
+
+The local rehearsal configuration uses `ALERT_COOLDOWN_SECONDS=0`. Restart the running backend
+after changing `.env`. Each rehearsal fall must use a new `event_id`; retries must keep the
+original ID and payload and will still be deduplicated. With the default 30-second cooldown,
+two distinct falls in the same camera/zone less than 30 seconds apart are both logged but
+only the first attempts SMS. Restore 30 after rehearsal if that is the team's desired alert policy.
+
+The matching Dev 1 key is provided locally in ignored `backend/data/dev1.env`. Transfer it privately
+to Dev 1 and copy `API_KEY` into the CV environment; never commit or send the full backend `.env`.
+REST sends it as `X-API-Key`; WebSockets send `{"api_key":"..."}` immediately after connecting.
+Dev 1 also needs the backend laptop's reachable address: `http://<backend-LAN-IP>:8000` for REST,
+or `ws://<backend-LAN-IP>:8000/ws/telemetry` for WebSockets. `localhost` on Dev 1's laptop points
+to Dev 1's machine. For the trusted rehearsal LAN, run Uvicorn with `--host 0.0.0.0` and allow
+the app through the local firewall as needed. No network exposure is enabled automatically here.
+SMS remains dry-run until Twilio is configured and enabled; disabling cooldown does not enable SMS.
 
 SMS results are persisted as `dry_run`, `not_configured`, `cooldown`, `pending`, a provider status such
 as `queued`, `failed`, `unknown`, or `partial`. A queued message is not proof of delivery. A timeout is
