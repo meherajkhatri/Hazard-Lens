@@ -40,6 +40,19 @@ python -m cv_engine.run --skeleton-only                      # privacy mode
 
 Preview window keys: `q` quit, `f` manual fall for the largest person (sent with `trigger: "manual"`).
 
+## Tuning thresholds on recorded clips (GPU cluster or laptop)
+
+Name clips so the label is in the file name: `fall_01.mp4` must trigger, anything else
+(`sit_01.mp4`, `adl-01-cam0`) must not. A clip can be a video or a folder of frames.
+
+```bash
+python -m cv_engine.eval_clips path/to/clips --device cuda           # pass/fail table
+python -m cv_engine.eval_clips path/to/clips --device cuda --sweep   # + best FallThresholds
+```
+
+Pose extraction (the GPU-heavy part) runs once per clip and is cached in `path/to/clips/.pose_cache`,
+so re-scoring and the 108-combination sweep take seconds. Keep clips and the cache out of the repo.
+
 ## Settings (`cv_engine/.env` or environment variables)
 
 | Variable | Default | Notes |
