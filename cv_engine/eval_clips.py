@@ -59,6 +59,20 @@ def is_fall_clip(path: Path) -> bool:
     return path.name.lower().startswith("fall")
 
 
+def frame_dir(path: Path) -> Path | None:
+    """Folder holding a clip's image frames: `path` itself, or its only
+    subfolder (zips often unpack as name/name/*.png). None if neither."""
+    def has_images(folder: Path) -> bool:
+        return any(f.suffix.lower() in IMAGE_EXTS for f in folder.iterdir())
+
+    if has_images(path):
+        return path
+    subdirs = [d for d in path.iterdir() if d.is_dir() and not d.name.startswith(".")]
+    if len(subdirs) == 1 and has_images(subdirs[0]):
+        return subdirs[0]
+    return None
+
+
 def find_clips(root: Path) -> list[Path]:
     clips = []
     for path in sorted(root.iterdir()):
@@ -66,7 +80,7 @@ def find_clips(root: Path) -> list[Path]:
             continue
         if path.is_file() and path.suffix.lower() in VIDEO_EXTS:
             clips.append(path)
-        elif path.is_dir() and any(f.suffix.lower() in IMAGE_EXTS for f in path.iterdir()):
+        elif path.is_dir() and frame_dir(path) is not None:
             clips.append(path)
     return clips
 
@@ -76,7 +90,7 @@ def _read_frames(clip: Path, folder_fps: float):
     import cv2
 
     if clip.is_dir():
-        images = sorted(f for f in clip.iterdir() if f.suffix.lower() in IMAGE_EXTS)
+        images = sorted(f for f in frame_dir(clip).iterdir() if f.suffix.lower() in IMAGE_EXTS)
         for i, image in enumerate(images):
             frame = cv2.imread(str(image))
             if frame is not None:

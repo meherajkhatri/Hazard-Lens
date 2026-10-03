@@ -127,3 +127,18 @@ def test_reset_tracking_restarts_track_ids():
     first = sorted(p.track_id for p in estimator(image))
     estimator.reset_tracking()
     assert sorted(p.track_id for p in estimator(image)) == first
+
+
+def test_frame_folders_nested_one_level_are_found_and_read(tmp_path):
+    from cv_engine.eval_clips import _read_frames, frame_dir
+
+    outer = tmp_path / "fall-01-cam0-rgb"
+    inner = outer / "fall-01-cam0-rgb"
+    inner.mkdir(parents=True)
+    for i in range(3):
+        cv2.imwrite(str(inner / f"fall-01-cam0-rgb-{i:03d}.png"), np.full((10, 10, 3), i, np.uint8))
+    (tmp_path / "empty-dir").mkdir()
+
+    assert [p.name for p in find_clips(tmp_path)] == ["fall-01-cam0-rgb"]
+    assert frame_dir(outer) == inner
+    assert [round(t, 3) for t, _ in _read_frames(outer, 30.0)] == [0.0, 0.033, 0.067]
