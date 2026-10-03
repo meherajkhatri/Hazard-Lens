@@ -1,42 +1,170 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Activity, ChevronDown, CircleHelp, MapPin, ShieldCheck } from "lucide-react";
 import { MotionConfig } from "framer-motion";
-import { acknowledgeIncident, dispatchResponse, fetchIncidents, handleIncomingIncident, triggerAlertSound } from "@/lib/call-help/demo-api";
-import { initialZones, type Incident, type Zone } from "@/lib/call-help/mock-data";
+import { connectIncidentSocket, getHealth, getIncidents, sendDemoFall, setIncidentStatus } from "@/lib/call-help/api";
+import type { Incident, Zone } from "@/lib/call-help/types";
 import { ActiveIncidentCard, AISafetyInsights, AlertToast, IncidentDrawer, IncidentTimeline, LiveCameraPanel, SafetyStats, TopNav, ZoneStatusPanel } from "./Panels";
 import "./dashboard.css";
 
 type Toast = { title: string; message: string; critical?: boolean };
+
 export default function Dashboard() {
-  const [incidents, setIncidents] = useState<Incident[]>(fetchIncidents);
-  const [zones, setZones] = useState<Zone[]>(() => initialZones.map(zone => ({ ...zone })));
-  const [selectedZone, setSelectedZone] = useState("02");
-  const [activeId, setActiveId] = useState<string | null>(null);
-  const [addedFalls, setAddedFalls] = useState(0);
-  const [resetVersion, setResetVersion] = useState(0);
+  const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [selectedZone, setSelectedZone] = useState("");
   const [drawerId, setDrawerId] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
   const [cameraTime, setCameraTime] = useState("");
-  const sequence = useRef(43);
+  const [backendOnline, setBackendOnline] = useState(false);
+  const [realtimeOnline, setRealtimeOnline] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [actionBusy, setActionBusy] = useState(false);
   const alertTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const activeIncident = incidents.find(incident => incident.id === activeId && incident.status !== "resolved");
-  const incidentActive = Boolean(activeIncident);
-  const zone = zones.find(zone => zone.id === selectedZone)!;
-  const cameraIncidentActive = incidentActive && zone.name === activeIncident?.zone;
-  useEffect(() => { const update = () => setCameraTime(new Date().toLocaleString("sv-SE")); update(); const timer = setInterval(update, 1000); return () => { clearInterval(timer); if (alertTimer.current) clearTimeout(alertTimer.current); }; }, []);
-  function notify(value: Toast) { if (alertTimer.current) clearTimeout(alertTimer.current); setToast(value); alertTimer.current = setTimeout(() => setToast(null), 6500); }
-  function simulateFall() {
-    if (incidentActive) return;
-    const incident = handleIncomingIncident({ id: `INC-${String(sequence.current++).padStart(3, "0")}`, timestamp: new Date().toISOString(), zone: "Forklift Corridor 1", eventType: "Worker Down", confidence: 94, severity: "critical", status: "unacknowledged" });
-    setIncidents(previous => [incident, ...previous]); setActiveId(incident.id); setSelectedZone("02"); setAddedFalls(previous => previous + 1);
-    setZones(previous => previous.map(zone => zone.id === "02" ? { ...zone, status: "critical", incidentsToday: zone.incidentsToday + 1 } : zone));
-    triggerAlertSound(); notify({ title: "CRITICAL INCIDENT DETECTED", message: "Worker down in Forklift Corridor 1", critical: true });
+
+  const upsertIncident = useCallback((incoming: Incident) => {
+    setIncidents(previous => {
+      const next = previous.filter(item => item.id !== incoming.id);
+      return [incoming, ...next].sort((a, b) => +new Date(b.timestamp) - +new Date(a.timestamp));
+    });
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const updateClock = () => setCameraTime(new Date().toLocaleString("sv-SE"));
+    updateClock();
+    const clock = setInterval(updateClock, 1000);
+
+    Promise.all([getHealth(), getIncidents()])
+      .then(([health, rows]) => {
+        if (cancelled) return;
+        setBackendOnline(health.status === "ok");
+        setIncidents(rows.sort((a, b) => +new Date(b.timestamp) - +new Date(a.timestamp)));
+        setSelectedZone(rows[0]?.zone || "");
+      })
+      .catch(() => {
+        if (!cancelled) setBackendOnline(false);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    const disconnect = connectIncidentSocket(
+      incident => {
+        upsertIncident(incident);
+        setBackendOnline(true);
+        setSelectedZone(current => current || incident.zone);
+        if (incident.status !== "resolved") {
+          notify({ title: "LIVE INCIDENT UPDATE", message: `${incident.eventType} · ${incident.zone}`, critical: incident.severity === "critical" });
+        }
+      },
+      setRealtimeOnline,
+    );
+
+    return () => {
+      cancelled = true;
+      clearInterval(clock);
+      disconnect();
+      if (alertTimer.current) clearTimeout(alertTimer.current);
+    };
+  }, [upsertIncident]);
+
+  function notify(value: Toast) {
+    if (alertTimer.current) clearTimeout(alertTimer.current);
+    setToast(value);
+    alertTimer.current = setTimeout(() => setToast(null), 6500);
   }
-  function acknowledge() { if (!activeIncident || activeIncident.status !== "unacknowledged") return; setIncidents(previous => previous.map(incident => incident.id === activeId ? acknowledgeIncident(incident) : incident)); notify({ title: "Incident acknowledged", message: "Response coordination is ready." }); }
-  function dispatch() { if (!activeIncident || activeIncident.status === "dispatched") return; setIncidents(previous => previous.map(incident => incident.id === activeId ? dispatchResponse(incident) : incident)); notify({ title: "RESPONSE DISPATCHED", message: "Emergency response team notified." }); }
-  function reset() { setResetVersion(previous => previous + 1); setIncidents(fetchIncidents()); setZones(initialZones.map(zone => ({ ...zone }))); setSelectedZone("02"); setActiveId(null); setAddedFalls(0); setDrawerId(null); setToast(null); if (alertTimer.current) clearTimeout(alertTimer.current); }
+
+  const activeIncident = useMemo(
+    () => incidents.find(incident => incident.status !== "resolved"),
+    [incidents],
+  );
+
+  const zones = useMemo<Zone[]>(() => {
+    const today = new Date().toDateString();
+    const names = Array.from(new Set(incidents.map(item => item.zone)));
+    return names.map((name, index) => {
+      const rows = incidents.filter(item => item.zone === name);
+      const unresolved = rows.find(item => item.status !== "resolved");
+      return {
+        id: name,
+        name,
+        status: unresolved ? (unresolved.severity === "critical" ? "critical" : "warning") : "normal",
+        incidentsToday: rows.filter(item => new Date(item.timestamp).toDateString() === today).length,
+      };
+    }).sort((a, b) => a.name.localeCompare(b.name));
+  }, [incidents]);
+
+  const selected = zones.find(zone => zone.id === selectedZone) || zones[0] || {
+    id: "none",
+    name: "No recorded zone",
+    status: "normal" as const,
+    incidentsToday: 0,
+  };
+
+  async function simulateFall() {
+    if (!backendOnline || actionBusy) return;
+    setActionBusy(true);
+    try {
+      await sendDemoFall(selected.id === "none" ? "Forklift Corridor 1" : selected.name);
+      notify({ title: "DEMO TELEMETRY SENT", message: "Fall telemetry was sent through the real backend.", critical: true });
+    } catch (error) {
+      notify({ title: "Telemetry failed", message: error instanceof Error ? error.message : "Backend request failed." });
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
+  async function acknowledge() {
+    if (!activeIncident || actionBusy) return;
+    setActionBusy(true);
+    try {
+      upsertIncident(await setIncidentStatus(activeIncident.id, "acknowledged"));
+      notify({ title: "Incident acknowledged", message: "Backend status updated successfully." });
+    } catch (error) {
+      notify({ title: "Acknowledge failed", message: error instanceof Error ? error.message : "Backend request failed." });
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
+  async function resolve(id: string) {
+    if (actionBusy) return;
+    setActionBusy(true);
+    try {
+      upsertIncident(await setIncidentStatus(id, "resolved"));
+      notify({ title: "Incident resolved", message: "Backend status updated successfully." });
+    } catch (error) {
+      notify({ title: "Resolve failed", message: error instanceof Error ? error.message : "Backend request failed." });
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
   const dismissDrawer = useCallback(() => setDrawerId(null), []);
-  function resolve(id: string) { setIncidents(previous => previous.map(incident => incident.id === id ? { ...incident, status: "resolved" } : incident)); if (id === activeId) { setActiveId(null); setZones(previous => previous.map(zone => zone.id === "02" ? { ...zone, status: "normal" } : zone)); } notify({ title: "Incident closed", message: "The incident has been marked as resolved." }); }
-  return <MotionConfig reducedMotion="user"><div className="call-help min-h-screen relative isolate"><TopNav active={incidentActive} onNotifications={() => notify(incidentActive ? { title: "Active safety alert", message: "Worker down in Forklift Corridor 1", critical: true } : { title: "You’re all caught up", message: "No active incidents. All monitored zones are operating normally." })}/><main className="dashboard"><div className="dashboard-intro"><div><div className="eyebrow"><span/> LIVE OPERATIONS</div><h1>Safety command center<span>.</span></h1><p>Real-time awareness. Faster response. Safer people.</p></div><div className="facility-label"><span className="facility-icon"><MapPin size={19}/></span><div><small>MONITORING FACILITY</small><b>North facility <span>·</span> Detroit, MI</b></div><ChevronDown size={14}/></div></div><div className="operation-strip"><div><ShieldCheck size={15}/><b>{incidentActive ? "Incident response in progress" : "All systems operational"}</b><span className="strip-separator"/><span>4 transit zones monitored</span></div><span><Activity size={14}/> Computer vision connected</span></div><div className="primary-grid"><LiveCameraPanel zone={zone} incidentActive={cameraIncidentActive} simulationDisabled={incidentActive} time={cameraTime} onSimulate={simulateFall} onReset={reset}/><ActiveIncidentCard incident={activeIncident} onAcknowledge={acknowledge} onDispatch={dispatch} onCamera={() => { setSelectedZone("02"); document.getElementById("live-camera")?.scrollIntoView({ behavior: "smooth", block: "center" }); }}/></div><div className="secondary-grid"><ZoneStatusPanel zones={zones} selected={selectedZone} onSelect={zone => setSelectedZone(zone.id)}/><SafetyStats addedFalls={addedFalls}/><IncidentTimeline incidents={incidents} onSelect={incident => setDrawerId(incident.id)}/></div><AISafetyInsights key={resetVersion}/><footer className="dashboard-footer"><span><span className="footer-logo"><Activity size={12}/></span> CALL-HELP <i/> Built for the people on the floor.</span><span><CircleHelp size={12}/> Local demonstration <i/> No external services connected</span></footer></main><IncidentDrawer incident={incidents.find(incident => incident.id === drawerId) || null} onDismiss={dismissDrawer} onResolve={resolve}/><AlertToast toast={toast} onDismiss={() => setToast(null)}/></div></MotionConfig>;
+
+  return <MotionConfig reducedMotion="user">
+    <div className="call-help min-h-screen relative isolate">
+      <TopNav active={Boolean(activeIncident)} backendOnline={backendOnline} realtimeOnline={realtimeOnline} onNotifications={() => notify(activeIncident ? { title: "Active safety alert", message: `${activeIncident.eventType} · ${activeIncident.zone}`, critical: true } : { title: "No active incident", message: "The backend currently reports no unresolved incidents." })}/>
+      <main className="dashboard">
+        <div className="dashboard-intro">
+          <div><div className="eyebrow"><span/> LIVE OPERATIONS</div><h1>Safety command center<span>.</span></h1><p>Backend-connected incident monitoring and response.</p></div>
+          <div className="facility-label"><span className="facility-icon"><MapPin size={19}/></span><div><small>SELECTED ZONE</small><b>{selected.name} <span>·</span> Live data</b></div><ChevronDown size={14}/></div>
+        </div>
+        <div className="operation-strip"><div><ShieldCheck size={15}/><b>{loading ? "Connecting to safety backend…" : activeIncident ? "Incident response in progress" : "No unresolved incidents"}</b><span className="strip-separator"/><span>{zones.length} recorded zones</span></div><span><Activity size={14}/> {realtimeOnline ? "Realtime incident channel connected" : "Realtime channel disconnected"}</span></div>
+        <div className="primary-grid">
+          <LiveCameraPanel zone={selected} incidentActive={Boolean(activeIncident && activeIncident.zone === selected.name)} simulationDisabled={!backendOnline || actionBusy} time={cameraTime} onSimulate={simulateFall} backendOnline={backendOnline} realtimeOnline={realtimeOnline}/>
+          <ActiveIncidentCard incident={activeIncident} busy={actionBusy} onAcknowledge={acknowledge} onCamera={() => document.getElementById("live-camera")?.scrollIntoView({ behavior: "smooth", block: "center" })}/>
+        </div>
+        <div className="secondary-grid">
+          <ZoneStatusPanel zones={zones} selected={selected.id} onSelect={zone => setSelectedZone(zone.id)}/>
+          <SafetyStats incidents={incidents}/>
+          <IncidentTimeline incidents={incidents} onSelect={incident => setDrawerId(incident.id)}/>
+        </div>
+        <AISafetyInsights zoneId={selected.id === "none" ? undefined : selected.name}/>
+        <footer className="dashboard-footer"><span><span className="footer-logo"><Activity size={12}/></span> CALL-HELP <i/> Built for the people on the floor.</span><span><CircleHelp size={12}/> REST + WebSocket integration <i/> {backendOnline ? "Backend online" : "Backend offline"}</span></footer>
+      </main>
+      <IncidentDrawer incident={incidents.find(incident => incident.id === drawerId) || null} onDismiss={dismissDrawer} onResolve={resolve}/>
+      <AlertToast toast={toast} onDismiss={() => setToast(null)}/>
+    </div>
+  </MotionConfig>;
 }
