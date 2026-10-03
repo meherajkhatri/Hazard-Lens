@@ -9,10 +9,16 @@ Updated October 3, 2026.
 | Requirement | Evidence | Status |
 | --- | --- | --- |
 | Git repository and backend branch | `origin/backend`, first implementation commit `7bfbf6b` | Complete |
-| Python/API environment | Project virtual environment, dependency check and test suite | Verified locally |
+| Python/API environment | Project virtual environment, dependency check, test suite, and real Uvicorn HTTP startup test | Verified locally |
 | JSON telemetry contract | `app/schemas.py`, examples and retry rules in `README.md` | Implemented and tested; team handoff still needed |
 | Supabase incidents schema | `supabase/schema.sql` | SQL prepared; execution on a real project unverified |
 | Working Supabase persistence | `python -m app.verify_setup --write-probe` | Blocked: no configured Supabase URL/key |
+
+Setup access checked: Supabase dashboard opens to sign-in in the in-app browser.
+User authentication is required before cloud provisioning can continue. No local Docker or
+PostgreSQL executable is available. The ignored `.env` now has a generated local API key.
+The real server startup test verifies the HTTP listener, database readiness, API authentication,
+and published telemetry schema. This does not substitute for Supabase verification.
 
 To close this gate:
 
