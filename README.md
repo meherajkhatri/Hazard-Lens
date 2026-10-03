@@ -56,7 +56,7 @@ Supabase schema, WebSocket contracts, seed data, tests, and current operating li
 
 `backend/app/cv/pose_tracker.py` includes a stub `PoseTracker` class using OpenCV + Ultralytics model hooks for pose processing.
 
-## Frontend (React + Vite)
+## Frontend (Next.js + React)
 
 ### Setup
 
@@ -66,13 +66,16 @@ npm install
 npm run dev
 ```
 
-### UI Stubs
+### Integrated dashboard
 
-- Active incident list panel.
-- AI Safety Coach chat interface.
+The dashboard loads persisted incidents, subscribes to live backend events,
+acknowledges/resolves incidents, displays actual automatic SMS status, embeds the
+CV engine's annotated MJPEG stream, and submits zone-scoped Safety Coach queries.
+See [frontend setup and rehearsal](frontend/README.md) for configuration, a
+multi-laptop walkthrough, and automated integration checks.
 
-## Next Steps
+### External setup remaining
 
-- Connect the CV pipeline to the telemetry contract and dashboard to REST/WebSockets.
-- Configure and verify Supabase, Twilio, and Gemini with the team's accounts.
-- Connect the Safety Coach UI to the backend chat endpoint.
+Configure and verify Supabase, Twilio, and Gemini with your team's accounts, and
+rehearse the camera on your actual hardware. SQLite, dry-run SMS, and the clearly
+labeled local count summary work without external credentials.

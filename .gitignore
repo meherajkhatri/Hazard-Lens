@@ -229,3 +229,9 @@ backend/data/
 
 # YOLO weights (Ultralytics downloads them into the working directory)
 *.pt
+
+# Next.js outputs; application source is not a Python lib directory.
+frontend/.next/
+frontend/*.tsbuildinfo
+!frontend/src/lib/
+!frontend/src/lib/**
