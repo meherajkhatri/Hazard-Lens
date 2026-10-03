@@ -222,6 +222,9 @@ __marimo__/
 # Frontend
 frontend/node_modules/
 frontend/dist/
+backend/data/
+.env.*
+!.env.example
 
 # YOLO weights (Ultralytics downloads them into the working directory)
 *.pt
