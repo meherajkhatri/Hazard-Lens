@@ -25,13 +25,16 @@ import numpy as np
 from cv_engine.camera import LiveCamera, list_cameras, open_camera, open_stream
 from cv_engine.config import EngineConfig
 from cv_engine.detector.fall_state import FallDetector
-from cv_engine.detector.types import FallEvent, PersonPose
+from cv_engine.detector.types import Assessment, FallEvent, PersonPose
 from cv_engine.overlay import draw_frame
-from cv_engine.transport.emitter import event_id, fall_payload, heartbeat_payload
+from cv_engine.transport.emitter import assessment_payload, event_id, fall_payload, heartbeat_payload
 from cv_engine.vision import VisionMonitor
 
 log = logging.getLogger("cv_engine")
 FPS_SMOOTHING = 0.9
+RECOVERED_LABEL_S = 5.0
+OUTCOME_NOTES = {None: "", Assessment.UNRESPONSIVE: " - NO MOVEMENT", Assessment.MOVING: " - MOVING"}
+UNRESPONSIVE_ALERT = "NO MOVEMENT - POSSIBLE MEDICAL EMERGENCY"
 
 
 def detect_public_host() -> str:
@@ -69,6 +72,7 @@ class Engine:
         self._last_frame_at: float | None = None
         self._last_heartbeat_at = float("-inf")
         self.vision = VisionMonitor()
+        self._recovered_until: dict[int, float] = {}
 
     def process(self, frame: np.ndarray, now: float, force_fall: bool = False) -> tuple[np.ndarray, list[FallEvent]]:
         """`now` is the frame's time: wall clock for a webcam, video time for a clip."""
@@ -91,10 +95,20 @@ class Engine:
             self.fps = instant if self.fps == 0 else FPS_SMOOTHING * self.fps + (1 - FPS_SMOOTHING) * instant
         self._last_frame_at = now
 
+        for assessment in self.detector.pop_assessments():
+            incident_id = event_id(self.cfg.CAMERA_ID, assessment.fall)
+            log.warning("POST-FALL track=%s outcome=%s down=%.0fs motion=%.3f", assessment.fall.track_id,
+                        assessment.outcome.value, assessment.seconds_down, assessment.motion)
+            if assessment.outcome is Assessment.RECOVERED:
+                self._recovered_until[assessment.fall.track_id] = now + RECOVERED_LABEL_S
+            self.emitter.send_assessment(incident_id, assessment_payload(assessment, self.cfg.CAMERA_ID, self.cfg.ZONE_ID))
+
         states = {p.track_id: self.detector.state_of(p.track_id) for p in self.people}
+        notes, unresponsive = self._post_fall_notes(now)
         status = f"{self.cfg.ZONE_ID} | {self.cfg.CAMERA_ID} | {self.fps:.0f} FPS | {len(self.people)} people"
         annotated = draw_frame(frame, self.people, states, status, skeleton_only=self.skeleton_only,
-                               vision_warning=vision.label if vision.impaired else None)
+                               vision_warning=vision.label if vision.impaired else None, notes=notes,
+                               alert_text=UNRESPONSIVE_ALERT if unresponsive else "FALL DETECTED")
 
         for event in events:
             # Same clock as `now`, plus the time this frame took to process.
@@ -115,6 +129,19 @@ class Engine:
                                     "vision": vision.reason or "ok"}
             self.streamer.update_frame(annotated)
         return annotated, events
+
+    def _post_fall_notes(self, now: float) -> tuple[dict[int, str], bool]:
+        """Per-person labels like "DOWN 7s - NO MOVEMENT", and whether anyone is unresponsive."""
+        notes, unresponsive = {}, False
+        for person in self.people:
+            down = self.detector.down_status(person.track_id, now)
+            if down:
+                seconds, outcome = down
+                notes[person.track_id] = f"DOWN {seconds:.0f}s{OUTCOME_NOTES[outcome]}"
+                unresponsive |= outcome is Assessment.UNRESPONSIVE
+            elif self._recovered_until.get(person.track_id, 0) > now:
+                notes[person.track_id] = "RECOVERED"
+        return notes, unresponsive
 
 
 def parse_args(argv=None) -> argparse.Namespace:

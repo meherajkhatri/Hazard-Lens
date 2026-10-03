@@ -17,7 +17,7 @@ from uuid import NAMESPACE_URL, uuid5
 
 import requests
 
-from cv_engine.detector.types import FallEvent
+from cv_engine.detector.types import FallEvent, PostFallAssessment
 
 log = logging.getLogger(__name__)
 
@@ -88,12 +88,29 @@ def heartbeat_payload(camera_id: str, zone_id: str, now: float, fps: float, peop
 
 
 def is_heartbeat(payload: dict) -> bool:
-    return payload["event_type"] == "normal"
+    return payload.get("event_type") == "normal"
+
+
+def assessment_path(incident_id: str) -> str:
+    return f"/api/v1/incidents/{incident_id}/assessment"
+
+
+def assessment_payload(assessment: PostFallAssessment, camera_id: str, zone_id: str) -> dict:
+    """Body for POST /api/v1/incidents/{incident_id}/assessment (incident_id = the fall's event_id)."""
+    return {
+        "outcome": assessment.outcome.value,
+        "seconds_down": round(assessment.seconds_down, 1),
+        "motion": round(assessment.motion, 3),
+        "observed_at": _iso(assessment.timestamp),
+        "camera_id": camera_id,
+        "zone_id": zone_id,
+    }
 
 
 class TelemetryEmitter:
     def __init__(self, backend_url: str, api_key: str = "") -> None:
-        self.url = backend_url.rstrip("/") + TELEMETRY_PATH
+        self.base_url = backend_url.rstrip("/")
+        self.url = self.base_url + TELEMETRY_PATH
         self._queue: queue.Queue[dict | None] = queue.Queue()
         self._pending_falls: deque[dict] = deque(maxlen=MAX_PENDING_FALLS)
         self._session = requests.Session()
@@ -101,12 +118,19 @@ class TelemetryEmitter:
             self._session.headers["X-API-Key"] = api_key
         self._thread = threading.Thread(target=self._run, name="telemetry-emitter", daemon=True)
         self.delivered = 0
+        self._pending_assessments: deque[tuple[str, dict]] = deque(maxlen=MAX_PENDING_FALLS)
+        self.assessments_delivered = 0
+        self._warned_no_assessment_endpoint = False
         self.rejected = 0  # falls the backend refused or ignored; should stay 0
         self._thread.start()
 
     def send(self, payload: dict) -> None:
         """Queue a payload. Returns immediately."""
         self._queue.put(payload)
+
+    def send_assessment(self, incident_id: str, body: dict) -> None:
+        """Queue a post-fall assessment for an incident. Sent after pending falls."""
+        self._queue.put({"_assessment_for": incident_id, "body": body})
 
     @property
     def pending_falls(self) -> int:
@@ -154,6 +178,35 @@ class TelemetryEmitter:
             if not self._post(self._pending_falls[0]):
                 return
             self._pending_falls.popleft()
+        # An assessment needs its incident to exist, so only after falls are out.
+        while self._pending_assessments:
+            if not self._post_assessment(*self._pending_assessments[0]):
+                return
+            self._pending_assessments.popleft()
+
+    def _post_assessment(self, incident_id: str, body: dict) -> bool:
+        """True when settled (delivered, or refused for good)."""
+        try:
+            response = self._session.post(self.base_url + assessment_path(incident_id), json=body,
+                                          timeout=FALL_TIMEOUT_S)
+        except requests.RequestException as exc:
+            log.warning("backend unreachable (assessment): %s", exc)
+            return False
+        if response.ok:
+            self.assessments_delivered += 1
+            return True
+        if response.status_code in (404, 405):
+            if not self._warned_no_assessment_endpoint:
+                self._warned_no_assessment_endpoint = True
+                log.warning("backend has no %s endpoint yet; post-fall outcomes show on the stream only",
+                            assessment_path("{incident_id}"))
+            return True
+        if 400 <= response.status_code < 500:
+            log.error("backend rejected assessment for %s: %s %s", incident_id, response.status_code,
+                      response.text[:300])
+            return True
+        log.warning("backend error %s for assessment", response.status_code)
+        return False
 
     def _run(self) -> None:
         while True:
@@ -171,11 +224,13 @@ class TelemetryEmitter:
                     break
 
             stopping = None in batch
-            heartbeats = [p for p in batch if p is not None and is_heartbeat(p)]
-            self._pending_falls.extend(p for p in batch if p is not None and not is_heartbeat(p))
+            items = [p for p in batch if p is not None]
+            heartbeats = [p for p in items if is_heartbeat(p)]
+            self._pending_assessments.extend((p["_assessment_for"], p["body"]) for p in items if "_assessment_for" in p)
+            self._pending_falls.extend(p for p in items if not is_heartbeat(p) and "_assessment_for" not in p)
             self._flush_pending()
             # Only the latest heartbeat matters, and never ahead of undelivered falls.
-            if heartbeats and not self._pending_falls:
+            if heartbeats and not self._pending_falls and not self._pending_assessments:
                 self._post(heartbeats[-1], retry=False)
             if stopping:
                 return
