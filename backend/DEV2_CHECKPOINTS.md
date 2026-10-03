@@ -63,7 +63,7 @@ submission to the team's configured demo recipients; phone receipt confirmed by 
 replay sends no second alert; failure paths preserve the incident and honest SMS status.
 Seed tooling is available for Dev 4's historical data.
 
-## Hours 10–16 — IN PROGRESS
+## Hours 10–16 — BACKEND MILESTONES COMPLETE
 
 Existing implementation: camera WebSocket endpoint, dashboard broadcast endpoint, REST resync contract,
 and backend Gemini context retrieval.
@@ -78,7 +78,7 @@ from simulated camera send to dashboard receive; this is not a performance guara
 All 29 automated tests pass. SMS was forced to dry-run and Coach to local summary throughout.
 
 This validates the backend interfaces with simulated clients, not the physical CV camera or Dev 3 UI.
-Live Gemini and team-device end-to-end verification are still outstanding for this stage.
+Team-device end-to-end verification remains outstanding for this stage.
 
 Dev 1 sender milestone PASSED: fast-forwarded the backend branch to merged main `527e650`
 and ran `python -m app.verify_cv_integration` using the actual CV `TelemetryEmitter` and
@@ -97,11 +97,16 @@ not a claim that this agent has performed the physical cross-laptop rehearsal.
 
 Coach acceptance preparation: added `python -m app.verify_coach`, which requires real credentials,
 resolves a synthetic incident before model calls, checks a cited answer plus empty-zone retrieval,
-and leaves SMS disabled. Targeted Coach/API suite: 27 tests passed. Gemini context now preserves
-the simulated marker, and malformed/blocked/truncated provider responses fail explicitly.
-Live check currently blocked: Google AI Studio reports Service Not Allowed for the signed-in
-organization-managed Kent account. User account switch to an account with AI Studio access is pending.
-No Gemini API key/model is configured; no live Gemini answer has been verified yet.
+and leaves SMS disabled. Gemini context preserves the simulated marker, and malformed, blocked, or
+truncated provider responses fail explicitly. Transient provider failures (`429` and `5xx`) retry up
+to three times with bounded backoff; targeted Coach/API suite: 28 tests passed.
+
+Live Gemini acceptance PASSED with the user's `abhijohal09@gmail.com` AI Studio account and
+`gemini-3.8-flash`. `python -m app.verify_coach` probe
+`e54f0d51-9cd1-4ad9-8a0b-de3a241ca70c` persisted and resolved its simulated incident in Supabase,
+then verified that Gemini cited that incident and returned no sources for an empty zone. SMS remained
+in dry-run mode. The model had earlier returned a temporary `503 UNAVAILABLE`; bounded retries remain
+in place for transient provider capacity failures. The full backend suite passes 39 tests.
 
 ## Hours 16–22 — NOT ADVANCED
 
