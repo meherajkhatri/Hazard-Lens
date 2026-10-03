@@ -58,7 +58,8 @@ Run everything **from the repo root** as a module: `python -m cv_engine.run` (ad
 | `FallState` | `UPRIGHT` (green box), `FALLING` (amber), `DOWN` (red) | enum |
 | `FallDetector` | Holds one state machine per `track_id`; `update(people, now)` → `list[FallEvent]` | — |
 | `FallEvent` | One confirmed fall; maps 1:1 to a `fall` telemetry payload | — |
-| `pose_confidence` | Final score sent to the backend | 0–1 |
+| `pose_confidence` | Score sent to the backend: 0.65 + 0.35 × `fall_quality` for a confirmed fall, 1.0 for manual | 0–1 |
+| `event_id` | UUID per fall, stable across resends; also the incident ID and snapshot name | UUID |
 | `CAMERA_ID` / `ZONE_ID` | `"zone-1-cam-1"` / `"Zone 1"` | config |
 
 `backend/app/cv/pose_tracker.py` stays as-is for now. Once `cv_engine/` works, we either delete it or make it a thin import. That's a call for Dev 2 later, not a blocker.
@@ -89,45 +90,49 @@ tracks not seen for TRACK_TTL_S = 3s are forgotten
 ```
 Why this works: a **slow** lie-down never enters `FALLING` (no fast hip drop). A **crouch** never satisfies the torso angle. A **real fall** satisfies both. If the tracker gives a person a new `track_id` while they're on the floor, the new track never sees a drop, so there's no duplicate alert. All thresholds live in `config.py` so they can be tuned live at the venue.
 
-**`pose_confidence`** = (0.4 × min(`torso_angle_deg` / 90, 1) + 0.3 × min(`bbox_aspect` / 1.5, 1) + 0.3 × min(peak `drop_velocity` / 1.0, 1)) × `keypoint_conf`, clipped to [0, 1].
+**`pose_confidence`**: the state machine decides *whether* it's a fall; the score says how clean it was.
+`fall_quality` = (0.4 × min(`torso_angle_deg` / 90, 1) + 0.3 × min(`bbox_aspect` / 1.5, 1) + 0.3 × min(peak `drop_velocity` / 1.0, 1)) × `keypoint_conf`
+`pose_confidence` = 0.65 + 0.35 × `fall_quality`, so a confirmed fall scores 0.65–1.0. With the default thresholds the weakest confirmable fall scores 0.736, above the backend's `MIN_CONFIDENCE` of 0.7. Manual (`F`-key) events send 1.0.
 
 ---
 
-## 4. Telemetry contract (handshake with Dev 2, hour 0–1)
+## 4. Telemetry contract (matches Dev 2's backend)
 
-Conforms to the existing `TelemetryEvent` in `backend/app/schemas.py`:
+Conforms to `TelemetryEvent` in `backend/app/schemas.py` on the `backend` branch. That schema **rejects unknown top-level fields**, requires `zone_id`, and only accepts `event_type` values `fall`, `ppe_violation`, `collision_risk` and `normal`.
 
 ```json
-POST /api/v1/telemetry
+POST /api/v1/telemetry          (header X-API-Key: <API_KEY> when the backend sets one)
 {
+  "event_id": "fb858032-8f9f-5acc-b936-45ca716d2555",
   "camera_id": "zone-1-cam-1",
+  "zone_id": "Zone 1",
   "timestamp": "2026-10-03T21:14:07.412Z",
-  "pose_confidence": 0.81,
+  "pose_confidence": 0.93,
   "event_type": "fall",
   "metadata": {
-    "event_id": "zone-1-cam-1-3-1791062047412",
-    "zone_id": "Zone 1",
     "track_id": 3,
     "torso_angle_deg": 82.4,
     "bbox_aspect": 1.47,
     "drop_velocity": 0.92,
     "keypoint_conf": 0.88,
-    "snapshot_url": "http://<dev1-ip>:8001/snapshot/zone-1-cam-1-3-1791062047412.jpg",
+    "snapshot_url": "http://<dev1-ip>:8001/snapshot/fb858032-8f9f-5acc-b936-45ca716d2555.jpg",
     "latency_ms": 1252,
     "trigger": "auto"
   }
 }
 ```
 
-`event_id` = `<CAMERA_ID>-<track_id>-<epoch ms>`. `latency_ms` = time from the start of the drop to the moment the event is sent. `trigger` is `"auto"` for a detected fall and `"manual"` for the `F`-key backup, so the logs never pass a manual trigger off as a detection.
+- **`event_id`** is a UUID derived from `CAMERA_ID`, `track_id` and the fall's timestamp. A resend of the same fall gets the same ID, so the backend answers `duplicate` instead of creating a second incident or SMS. It is also the incident ID and the snapshot file name.
+- **`latency_ms`** = time from the start of the drop to the moment the event is sent.
+- **`trigger`** is `"auto"` for a detected fall and `"manual"` for the `F`-key backup, so the logs never pass a manual trigger off as a detection.
+- **Rules:** `pose_confidence` in [0, 1]; `metadata` at most 20 keys, values flat `str | int | float | bool` (no `null`, no nested objects or lists).
 
-Mapping from the original plan: `zone_id` → `metadata.zone_id`, `pose_event` → `event_type`, `confidence_score` → `pose_confidence`.
+**Backend behaviour the CV engine relies on:**
+- `MIN_CONFIDENCE` (default 0.7): lower scores return `200 {"status": "ignored"}` and are not stored. Every confirmed fall scores ≥ 0.736 (see §3), and the emitter logs an error and counts it in `rejected` if a fall is ever ignored or refused.
+- `ALERT_COOLDOWN_SECONDS` (default 30) suppresses repeat **SMS** per camera + zone; the incident is still recorded. In rehearsals, falls less than 30s apart send only one SMS.
+- A fall's HTTP response waits for the SMS submission, so the emitter allows 15s per fall request (2s for heartbeats).
 
-Schema rules to respect: `pose_confidence` must be in [0, 1], and `metadata` values must be flat `str | int | float | bool` (no `null`, no nested objects or lists).
-
-**Ask Dev 2 for:** (a) set incident `location` from `metadata.zone_id` (it currently uses `camera_id`); (b) dedupe server-side on `camera_id + track_id` within 15s as a second safety net against SMS spam.
-
-**Heartbeat:** every 5s, `event_type: "heartbeat"` with `pose_confidence: 0.0`, `metadata.fps` and `metadata.people_detected`, so the dashboard can show "Camera online · 28 FPS". The backend already ignores non-incident event types, so this is safe.
+**Heartbeat:** every 5s, `event_type: "normal"` with `pose_confidence: 0.0` and `metadata {heartbeat: true, fps, people_detected}`. The backend acknowledges it without storing it. The dashboard's "Camera online · 28 FPS" comes from the stream's `GET :8001/health`, not from the backend.
 
 ---
 

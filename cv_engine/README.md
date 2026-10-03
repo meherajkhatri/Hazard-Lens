@@ -34,6 +34,7 @@ Preview window keys: `q` quit, `f` manual fall for the largest person (sent with
 | `ZONE_ID` | `Zone 1` | |
 | `CAMERA_INDEX` | `0` | try `1` if the laptop's built-in camera opens instead of the USB webcam |
 | `BACKEND_URL` | `http://localhost:8000` | Dev 2's FastAPI server |
+| `API_KEY` | empty | must equal the backend's `API_KEY` (required there for live Twilio SMS) |
 | `STREAM_PORT` | `8001` | |
 | `PUBLIC_HOST` | auto-detected LAN IP | set it if snapshot links point at the wrong interface |
 | `MODEL_PATH` | `yolov8n-pose.pt` | |
@@ -43,14 +44,15 @@ Fall thresholds live in `FallThresholds` in `config.py`.
 
 ## For Dev 2 (backend)
 
-- Telemetry arrives at `POST /api/v1/telemetry` in the existing `TelemetryEvent` shape.
-  `event_type` is `fall` or `heartbeat` (every 5s).
-- Use `metadata.zone_id` for the incident location, and dedupe on `metadata.event_id`
-  (a fall is retried until the backend returns 2xx).
-- `metadata.trigger` is `auto` or `manual`.
+- Falls arrive at `POST /api/v1/telemetry` matching your `TelemetryEvent`, with a stable UUID
+  `event_id` (resends come back `duplicate`) and `metadata.trigger` = `auto` or `manual`.
+- Heartbeats are `event_type: "normal"` every 5s, which your backend ignores without storing.
+- Every confirmed fall scores `pose_confidence` ≥ 0.736, so keep `MIN_CONFIDENCE` at 0.7 or lower.
+- Set the same `API_KEY` on both sides; a mismatch shows up as `backend rejected ... (check API_KEY)` in the CV log.
 
 ## For Dev 3 (dashboard)
 
 - Live feed: `<img src="http://<dev1-ip>:8001/stream">`
 - Camera status: `GET http://<dev1-ip>:8001/health` → `{status, fps, people_detected, clients}`
-- Fall snapshot: `metadata.snapshot_url` on each fall event
+- Fall snapshot: `metadata.snapshot_url` on each fall incident (also `/snapshot/<incident_id>.jpg`)
+- Live incidents come from Dev 2's `/ws/incidents`, not from the CV engine
