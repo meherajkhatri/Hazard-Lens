@@ -29,3 +29,11 @@ def test_skeleton_only_hides_the_camera_image():
     out = draw_frame(FRAME, [make_pose()], {}, "Zone 1", skeleton_only=True)
     assert not _has_color(out, (128, 128, 128))
     assert _has_color(out, STATE_COLORS[FallState.UPRIGHT])
+
+
+def test_vision_warning_adds_amber_bar_at_bottom():
+    from cv_engine.overlay import VISION_WARNING_COLOR
+
+    out = draw_frame(FRAME, [], {}, "Zone 1", vision_warning="VISION IMPAIRED: GLARE")
+    assert tuple(out[-3, 2]) == VISION_WARNING_COLOR
+    assert not _has_color(draw_frame(FRAME, [], {}, "Zone 1"), VISION_WARNING_COLOR)

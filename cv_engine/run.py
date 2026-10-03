@@ -28,6 +28,7 @@ from cv_engine.detector.fall_state import FallDetector
 from cv_engine.detector.types import FallEvent, PersonPose
 from cv_engine.overlay import draw_frame
 from cv_engine.transport.emitter import event_id, fall_payload, heartbeat_payload
+from cv_engine.vision import VisionMonitor
 
 log = logging.getLogger("cv_engine")
 FPS_SMOOTHING = 0.9
@@ -67,10 +68,18 @@ class Engine:
         self.people: list[PersonPose] = []
         self._last_frame_at: float | None = None
         self._last_heartbeat_at = float("-inf")
+        self.vision = VisionMonitor()
 
     def process(self, frame: np.ndarray, now: float, force_fall: bool = False) -> tuple[np.ndarray, list[FallEvent]]:
         """`now` is the frame's time: wall clock for a webcam, video time for a clip."""
         started = time.perf_counter()
+        was_impaired = self.vision.status.impaired
+        vision = self.vision.update(frame, now)
+        if vision.impaired != was_impaired:
+            if vision.impaired:
+                log.warning("%s on %s: falls may be missed", vision.label, self.cfg.CAMERA_ID)
+            else:
+                log.info("vision restored on %s", self.cfg.CAMERA_ID)
         self.people = self.estimator(frame)
         events = self.detector.update(self.people, now)
         if force_fall and (target := largest_person(self.people)):
@@ -84,7 +93,8 @@ class Engine:
 
         states = {p.track_id: self.detector.state_of(p.track_id) for p in self.people}
         status = f"{self.cfg.ZONE_ID} | {self.cfg.CAMERA_ID} | {self.fps:.0f} FPS | {len(self.people)} people"
-        annotated = draw_frame(frame, self.people, states, status, skeleton_only=self.skeleton_only)
+        annotated = draw_frame(frame, self.people, states, status, skeleton_only=self.skeleton_only,
+                               vision_warning=vision.label if vision.impaired else None)
 
         for event in events:
             # Same clock as `now`, plus the time this frame took to process.
@@ -97,10 +107,12 @@ class Engine:
 
         if now - self._last_heartbeat_at >= self.cfg.HEARTBEAT_INTERVAL_S:
             self._last_heartbeat_at = now
-            self.emitter.send(heartbeat_payload(self.cfg.CAMERA_ID, self.cfg.ZONE_ID, now, self.fps, len(self.people)))
+            self.emitter.send(heartbeat_payload(self.cfg.CAMERA_ID, self.cfg.ZONE_ID, now, self.fps, len(self.people),
+                                                vision=vision.reason or "ok"))
 
         if self.streamer:
-            self.streamer.status = {"fps": round(self.fps, 1), "people_detected": len(self.people), "camera": "ok"}
+            self.streamer.status = {"fps": round(self.fps, 1), "people_detected": len(self.people), "camera": "ok",
+                                    "vision": vision.reason or "ok"}
             self.streamer.update_frame(annotated)
         return annotated, events
 

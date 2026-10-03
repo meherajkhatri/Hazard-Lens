@@ -71,15 +71,19 @@ def fall_payload(
     }
 
 
-def heartbeat_payload(camera_id: str, zone_id: str, now: float, fps: float, people_detected: int) -> dict:
-    """Sent as event_type "normal", which the backend acknowledges without storing."""
+def heartbeat_payload(camera_id: str, zone_id: str, now: float, fps: float, people_detected: int,
+                      vision: str = "ok") -> dict:
+    """Sent as event_type "normal", which the backend acknowledges without storing.
+
+    `vision` is "ok" or the VisionMonitor reason ("glare", "dark", "haze").
+    """
     return {
         "camera_id": camera_id,
         "zone_id": zone_id,
         "timestamp": _iso(now),
         "pose_confidence": 0.0,
         "event_type": "normal",
-        "metadata": {"heartbeat": True, "fps": round(fps, 1), "people_detected": people_detected},
+        "metadata": {"heartbeat": True, "fps": round(fps, 1), "people_detected": people_detected, "vision": vision},
     }
 
 

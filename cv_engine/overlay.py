@@ -19,6 +19,7 @@ SKELETON = [
     (11, 13), (13, 15), (12, 14), (14, 16),
     (0, 1), (0, 2), (1, 3), (2, 4),
 ]
+VISION_WARNING_COLOR = (0, 140, 255)  # BGR amber
 MIN_DRAW_CONF = 0.3
 BANNER_PX = 36
 
@@ -45,11 +46,13 @@ def draw_frame(
     states: dict[int, FallState],
     status: str,
     skeleton_only: bool = False,
+    vision_warning: str | None = None,
 ) -> np.ndarray:
     """Return an annotated copy of `frame`.
 
     `states` maps track_id -> FallState (missing ids draw as UPRIGHT).
     `skeleton_only` draws on black so no faces are shown or streamed.
+    `vision_warning` adds an amber bar at the bottom, e.g. "VISION IMPAIRED: GLARE".
     """
     img = np.zeros_like(frame) if skeleton_only else frame.copy()
     for person in people:
@@ -62,4 +65,8 @@ def draw_frame(
     cv2.putText(img, text, (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 255, 255), 2)
     if alert:
         cv2.rectangle(img, (0, 0), (w - 1, h - 1), STATE_COLORS[FallState.DOWN], 6)
+    if vision_warning:
+        cv2.rectangle(img, (0, h - BANNER_PX), (w, h), VISION_WARNING_COLOR, -1)
+        cv2.putText(img, f"{vision_warning}  |  detection unreliable", (10, h - 11),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 0, 0), 2)
     return img

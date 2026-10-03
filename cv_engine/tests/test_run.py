@@ -186,3 +186,23 @@ def test_two_cameras_run_side_by_side_against_one_backend(tmp_path, monkeypatch)
     finally:
         server.should_exit = True
         thread.join(5)
+
+
+def test_blinded_camera_is_flagged_in_stream_status_overlay_and_heartbeat():
+    """Flashlight into the lens: the engine keeps running and says it can't see."""
+    from cv_engine.overlay import VISION_WARNING_COLOR
+
+    rng = np.random.default_rng(0)
+    scene = np.dstack([np.kron(rng.integers(40, 220, (12, 16)), np.ones((40, 40)))] * 3).astype(np.uint8)
+    blinded = np.full_like(scene, 255)
+    engine, emitter, streamer, clock = make_engine(lambda t: [])
+    frames = [scene] * (4 * FPS) + [blinded] * (2 * FPS)
+    annotated = None
+    for i, frame in enumerate(frames):
+        clock["t"] = i / FPS
+        annotated, _ = engine.process(frame, clock["t"])
+
+    assert streamer.status["vision"] == "glare"
+    assert tuple(annotated[-5, 5]) == VISION_WARNING_COLOR
+    beats = [p for p in emitter.sent if p["metadata"].get("heartbeat")]
+    assert beats[0]["metadata"]["vision"] == "ok" and beats[-1]["metadata"]["vision"] == "glare"
