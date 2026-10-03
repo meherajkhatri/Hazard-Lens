@@ -36,7 +36,7 @@ It calls Supabase directly and never calls Twilio or the telemetry alert flow. R
 is available without `--write-probe`, but does not pass the gate because write access remains untested.
 The command returns nonzero for missing configuration, incomplete checks, or failures; it never prints keys.
 
-## Hours 3–10 — CORE VERIFIED; LIVE TWILIO DELAYED
+## Hours 3–10 — CORE VERIFIED; LIVE TWILIO BLOCKED BY TRIAL POLICY
 
 Existing implementation: REST ingestion, deduplication, persistent incident log, Twilio adapter,
 recipient allowlist, and labeled dry-run results. Local/mocked tests passed in the initial milestone.
@@ -47,12 +47,14 @@ duplicate retries, conflicting-ID rejection, readback, acknowledgement, resoluti
 recreating the FastAPI app. This used the in-process HTTP test harness against real Supabase; the
 network listener is covered separately by the server startup test. All 27 automated tests pass.
 
-Delayed dependency: Twilio console redirects to a login page that fails with `ERR_CONNECTION_RESET`
-in the in-app browser (two attempts). On October 3 the user reported Twilio servers down and explicitly
-authorized marking this delayed and advancing. A provider-wide outage was not independently verified.
-No real SMS has been sent and phone delivery is not verified. Keep `SMS_MODE=dry_run`; do not label
-dry-run results as sent. Resume live verification when the account, sender, and demo recipients are available.
-Hours 10–16 may proceed under this exception; SMS delivery remains an open acceptance item.
+The initial Twilio-console access issue is resolved. On October 3, a configured Account SID and Auth
+Token returned `200 active` from Twilio's read-only Account API. A single labeled CALL_HELP test through
+the backend's `/api/v1/alerts/sms` route reached Twilio but was rejected with HTTP `400`, provider code
+`572006`. This trial account policy requires predefined SMS templates and rejects the backend's dynamic
+incident text. No delivery SID was returned and phone receipt is not verified. Keep `SMS_MODE=dry_run`;
+do not label this as a delivered alert. The dispatcher now records the non-sensitive provider code with a
+failed result, while excluding raw provider messages that may contain phone numbers. Upgrade the account
+or configure an approved template before retrying live delivery. SMS delivery remains an open acceptance item.
 
 Rehearsal handoff: local `MIN_CONFIDENCE=0.7`, `ALERT_COOLDOWN_SECONDS=0`; an identical copy of
 the backend API key is prepared in ignored `backend/data/dev1.env` for private transfer to Dev 1.
