@@ -1,5 +1,8 @@
 numpy>=1.26
 opencv-python==4.10.0.84
 ultralytics==8.3.0
+# Needed by model.track(); Ultralytics otherwise auto-installs it on first run,
+# which fails or stalls on bad venue Wi-Fi.
+lapx>=0.5.2
 requests>=2.31
 pytest>=8.0
