@@ -10,7 +10,8 @@ Several cameras: one process per camera, each with its own id, index and port:
     python -m cv_engine.run --camera-id zone-1-cam-1 --zone-id "Zone 1" --camera-index 1 --port 8001
     python -m cv_engine.run --camera-id zone-1-cam-2 --zone-id "Zone 1" --camera-index 2 --port 8002
 
-Keys in the preview window: q = quit, f = manual fall for the largest person.
+Keys in the preview window: q or Esc = quit, f = manual fall for the largest person.
+Closing the preview window also stops the engine; so does Ctrl+C in the terminal.
 """
 
 import argparse
@@ -35,6 +36,21 @@ FPS_SMOOTHING = 0.9
 RECOVERED_LABEL_S = 5.0
 OUTCOME_NOTES = {None: "", Assessment.UNRESPONSIVE: " - NO MOVEMENT", Assessment.MOVING: " - MOVING"}
 UNRESPONSIVE_ALERT = "NO MOVEMENT - POSSIBLE MEDICAL EMERGENCY"
+
+
+QUIT_KEYS = {ord("q"), ord("Q"), 27}  # q, Q, Esc
+
+
+def window_closed(title: str) -> bool:
+    """True once the user closed the preview window with its X button.
+
+    Without this, imshow() reopens the window on the next frame and the engine
+    keeps running with no visible way to stop it.
+    """
+    try:
+        return cv2.getWindowProperty(title, cv2.WND_PROP_VISIBLE) < 1
+    except cv2.error:
+        return True
 
 
 def usable_device(requested: str) -> str:
@@ -237,6 +253,8 @@ def main(argv=None) -> None:
             log.warning("could not open %s yet; will keep retrying", source)
     clock_start, frame_index = time.time(), 0
     force_fall = False
+    window_title = f"Call-Help {cfg.CAMERA_ID} ({cfg.ZONE_ID})"
+    window_shown = False
 
     try:
         while True:
@@ -255,7 +273,8 @@ def main(argv=None) -> None:
                 frame = camera.read()
                 if frame is None:
                     streamer.status = {**streamer.status, "camera": "reconnecting"}
-                    if not args.no_window and cv2.waitKey(50) & 0xFF == ord("q"):
+                    if not args.no_window and window_shown and (
+                            cv2.waitKey(50) & 0xFF in QUIT_KEYS or window_closed(window_title)):
                         break
                     time.sleep(0.05)
                     continue
@@ -265,11 +284,14 @@ def main(argv=None) -> None:
             force_fall = False
 
             if not args.no_window:
-                cv2.imshow(f"Call-Help {cfg.CAMERA_ID} ({cfg.ZONE_ID})", annotated)
+                cv2.imshow(window_title, annotated)
                 key = cv2.waitKey(1) & 0xFF
-                if key == ord("q"):
+                if not window_shown:
+                    window_shown = True
+                    log.info("to stop: click the video window and press q, or close it")
+                elif key in QUIT_KEYS or window_closed(window_title):
                     break
-                force_fall = key == ord("f")
+                force_fall = key in (ord("f"), ord("F"))
     except KeyboardInterrupt:
         pass
     finally:

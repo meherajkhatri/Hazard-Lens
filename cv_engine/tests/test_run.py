@@ -252,3 +252,18 @@ def test_cuda_request_falls_back_to_cpu_when_torch_has_no_gpu(monkeypatch, caplo
     assert usable_device("cpu") == "cpu"
     monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
     assert usable_device("cuda") == "cuda"
+
+
+def test_window_closed_detects_closed_or_missing_window(monkeypatch):
+    from cv_engine import run
+
+    monkeypatch.setattr(run.cv2, "getWindowProperty", lambda title, prop: 0.0)
+    assert run.window_closed("Call-Help cam")
+    monkeypatch.setattr(run.cv2, "getWindowProperty", lambda title, prop: 1.0)
+    assert not run.window_closed("Call-Help cam")
+
+    def missing(title, prop):
+        raise run.cv2.error("NULL window")
+
+    monkeypatch.setattr(run.cv2, "getWindowProperty", missing)
+    assert run.window_closed("Call-Help cam")
