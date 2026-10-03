@@ -1,34 +1,99 @@
-# Call-Help
+# Call-Help dashboard
 
-An offline-capable industrial transit safety frontend. The standalone public dashboard runs at `/`.
+The Next.js dashboard connects to the FastAPI backend for persistent incidents,
+real-time updates, acknowledgment/resolution, automatic SMS status, and Safety
+Coach questions. It no longer creates mock dispatches or invented incident data.
 
-## Run
+## Run locally
+
+Start the backend first (see [backend setup](../backend/README.md)):
 
 ```sh
-npm install
+# From the repository root
+python3 -m venv .venv
+.venv/bin/pip install -r backend/requirements-dev.txt
+cd backend
+../.venv/bin/python -m app.seed
+../.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+In another terminal:
+
+```sh
+cd frontend
+cp .env.example .env.local
+npm ci
 npm run dev
 ```
 
-Open http://localhost:3000. No database, authentication, API keys, or external connection is needed for Call-Help.
+Open http://localhost:3000. Set `BACKEND_URL` to the backend's address and set
+`API_KEY` to the same value as backend/.env. Both variables stay server-side.
+Never put backend, Gemini, Supabase, or Twilio secrets in `NEXT_PUBLIC_*` variables.
 
-## Judging demo
+This dashboard is for a trusted local/LAN demo: its server routes have no user
+login, and anyone who can reach it can read/update incidents and query the Coach.
+Add user authentication before exposing it on the public internet. The persistent
+WebSocket bridge needs a long-running Node server (`npm start`), not static export.
 
-1. Click **Simulate Fall**. Camera detection, active incident, corridor status, timeline, statistics, and notification update together.
-2. Click **Acknowledge** to record acknowledgment, or dispatch directly.
-3. Click **Dispatch Response** to record a mock dispatch and show a confirmation.
-4. Click **Analyze Safety Pattern**. Local sample analysis appears after one second.
-5. Click any timeline entry for incident details. **Close Incident** resolves the record and clears the active zone alert when appropriate.
-6. Click **Reset Demo** to restore all initial data and clear AI results. Simulation can be repeated.
+## Camera and multi-laptop setup
 
-Zone rows select their simulated camera feed. The camera supports expansion. Notifications and all incident actions are local mock interactions; no actual messages or audio are sent.
+Follow [the CV engine guide](../cv_engine/README.md) to run the detector. Set its
+`BACKEND_URL` and `API_KEY` to the backend, and use `ZONE_ID=Zone 1`.
+In frontend/.env.local, set:
 
-## Integration points
+```dotenv
+NEXT_PUBLIC_CAMERA_STREAM_URL=http://CV-LAPTOP-IP:8001/stream
+NEXT_PUBLIC_CAMERA_ZONE=Zone 1
+```
 
-- `src/lib/call-help/mock-data.ts`: reusable Incident/Zone types and all mock datasets.
-- `src/lib/call-help/demo-api.ts`: placeholder Supabase reads/mutations, computer-vision WebSocket ingestion, server-side Gemini analysis, Twilio dispatch, and `triggerAlertSound()`.
-- `src/components/call-help/Dashboard.tsx`: coordinated frontend demo state.
-- `src/components/call-help/Panels.tsx`: reusable dashboard panels, toast, and accessible incident drawer.
-- `src/components/call-help/WarehouseScene.tsx`: local SVG camera illustration with normal/fallen poses.
-- `src/components/call-help/dashboard.css`: scoped responsive theme and reduced-motion support.
+The stream URL must be reachable from the browser, not just the Next.js server.
+Restart Next.js after changing configuration; `NEXT_PUBLIC_*` settings are fixed
+at build time for production. HTTPS dashboards require HTTPS camera streams.
+Only the configured zone displays this camera; other zones show an explicit
+unavailable state. Bounding boxes come from the actual annotated MJPEG stream.
 
-Production validation: `npm run build`. Webpack is an alternative if this environment blocks Turbopack worker ports. Run `npm run lint` to check the complete project.
+## Rehearsal
+
+1. Keep backend `SMS_MODE=dry_run`. Run `python -m app.seed` from backend/ to add
+   18 idempotent historical records without sending messages.
+2. Click **Enable alert sound** to unlock audio in the browser.
+3. Run `python -m app.simulate` from backend/ (with the backend URL/key options
+   described in its guide), or use the CV engine's manual fall event. This creates
+   a real stored incident and uses the backend's configured automatic SMS flow.
+4. Check the live incident, zone, timeline, statistics, and actual SMS status.
+5. Acknowledge it, reload, and confirm persistence. Open the timeline entry to
+   close it. Other connected dashboards update automatically.
+6. Ask the Coach about the selected zone. Without Gemini credentials, it clearly
+   labels its response as a local count summary. With Gemini configured in the
+   backend, it retrieves up to 50 recent incidents and returns source IDs.
+7. Stop/restart the backend. The dashboard shows disconnection, retries its event
+   stream, and refreshes persisted incidents on reconnection. It also reconciles
+   via REST every 15 seconds. Existing records stay visible with a stale warning
+   when retrieval fails.
+
+SMS runs automatically on qualifying fall ingestion, subject to the backend
+cooldown and deduplication. `dry_run` means no message was sent; `queued` does not
+confirm delivery. There is no browser resend button that could send duplicates.
+Configure real Twilio/Gemini/Supabase credentials only in backend/.env using the
+backend guide. Live provider and physical-camera checks require those resources.
+
+## Validation
+
+```sh
+npm run build
+npm run lint
+npm run test:integration
+```
+
+The integration test starts isolated backend/frontend processes with a temporary
+SQLite database, test API key, dry-run SMS, and local Coach. It requires the root
+`.venv` above and a completed frontend production build. It never contacts Twilio,
+Gemini, or Supabase. Set `CALL_HELP_TEST_PYTHON` to use another Python environment.
+
+## Data flow
+
+CV → FastAPI telemetry → incident database + SMS → backend WebSocket → Next.js
+server bridge → browser EventSource. REST reads/actions and Coach requests pass
+through an allowlisted same-origin Next.js proxy. Reconnects fetch a fresh REST
+snapshot; duplicate event IDs update existing rows. No backend secret is sent to
+the browser.
