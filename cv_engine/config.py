@@ -43,6 +43,8 @@ class EngineConfig:
     ZONE_ID: str = os.getenv("ZONE_ID", "Zone 1")
     CAMERA_INDEX: int = int(os.getenv("CAMERA_INDEX", "0"))
     BACKEND_URL: str = os.getenv("BACKEND_URL", "http://localhost:8000")
+    # Must match the backend's API_KEY (sent as X-API-Key). Empty if the backend has none.
+    API_KEY: str = os.getenv("API_KEY", "")
     STREAM_PORT: int = int(os.getenv("STREAM_PORT", "8001"))
     MODEL_PATH: str = os.getenv("MODEL_PATH", "yolov8n-pose.pt")
     # "cuda" (Nvidia), "mps" (Apple Silicon) or "cpu".

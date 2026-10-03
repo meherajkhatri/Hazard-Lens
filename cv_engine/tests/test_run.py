@@ -63,13 +63,14 @@ def test_engine_emits_one_fall_with_snapshot_and_heartbeats():
     play(engine, clock, seconds=11)
 
     falls = [p for p in emitter.sent if p["event_type"] == "fall"]
-    beats = [p for p in emitter.sent if p["event_type"] == "heartbeat"]
+    beats = [p for p in emitter.sent if p["metadata"].get("heartbeat")]
     assert len(falls) == 1
     assert len(beats) == 3  # t = 0, 5, 10
     meta = falls[0]["metadata"]
     assert meta["trigger"] == "auto"
-    assert meta["snapshot_url"].endswith(f"/snapshot/{meta['event_id']}.jpg")
-    assert meta["event_id"] in streamer.snapshots
+    assert meta["snapshot_url"].endswith(f"/snapshot/{falls[0]['event_id']}.jpg")
+    assert falls[0]["event_id"] in streamer.snapshots
+    assert falls[0]["pose_confidence"] >= 0.7
     assert 0 < meta["latency_ms"] < 2000
     assert streamer.frames == 11 * FPS
     assert engine.fps == pytest.approx(FPS, rel=0.01)
@@ -101,7 +102,7 @@ WEIGHTS = Path(os.getenv("MODEL_PATH", "yolov8n-pose.pt"))
 
 
 @pytest.mark.skipif(not WEIGHTS.exists(), reason="yolov8n-pose.pt not available")
-def test_main_end_to_end_on_generated_clip(tmp_path, monkeypatch):
+def test_main_end_to_end_on_generated_clip(tmp_path, monkeypatch, caplog):
     pytest.importorskip("ultralytics")
     from cv_engine.tests.test_emitter import _start_backend
     from cv_engine import run
@@ -117,13 +118,14 @@ def test_main_end_to_end_on_generated_clip(tmp_path, monkeypatch):
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
-    server, thread = _start_backend(port)
+    server, thread = _start_backend(port, tmp_path)
     monkeypatch.setattr(run, "EngineConfig", lambda: EngineConfig(
         BACKEND_URL=f"http://127.0.0.1:{port}", STREAM_PORT=0, MODEL_PATH=str(WEIGHTS), PUBLIC_HOST="127.0.0.1"))
     try:
         run.main(["--video", str(clip), "--no-window", "--skeleton-only"])
         # Empty clip: heartbeats delivered, no incidents raised.
         assert requests.get(f"http://127.0.0.1:{port}/api/v1/incidents", timeout=2).json() == []
+        assert "rejected" not in caplog.text.lower()
     finally:
         server.should_exit = True
         thread.join(5)

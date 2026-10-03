@@ -125,7 +125,7 @@ def main(argv=None) -> None:
     streamer = MjpegStreamer(port=cfg.STREAM_PORT).start()
     host = cfg.PUBLIC_HOST or detect_public_host()
     snapshot_base_url = f"http://{host}:{streamer.port}"
-    emitter = TelemetryEmitter(cfg.BACKEND_URL)
+    emitter = TelemetryEmitter(cfg.BACKEND_URL, cfg.API_KEY)
     engine = Engine(cfg, estimator, FallDetector(cfg.thresholds), emitter, streamer,
                     skeleton_only=args.skeleton_only, snapshot_base_url=snapshot_base_url)
     log.info("stream: %s/stream   backend: %s", snapshot_base_url, cfg.BACKEND_URL)
@@ -166,7 +166,8 @@ def main(argv=None) -> None:
         cv2.destroyAllWindows()
         emitter.close()
         streamer.stop()
-        log.info("stopped; %d telemetry messages delivered, %d falls undelivered", emitter.delivered, emitter.pending_falls)
+        log.info("stopped; %d telemetry messages delivered, %d falls undelivered, %d falls rejected by backend",
+                 emitter.delivered, emitter.pending_falls, emitter.rejected)
 
 
 if __name__ == "__main__":

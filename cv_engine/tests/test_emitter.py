@@ -7,6 +7,8 @@ import threading
 import time
 from pathlib import Path
 
+from uuid import UUID
+
 import pytest
 import requests
 
@@ -37,18 +39,27 @@ def _backend_schemas():
     return schemas
 
 
-def test_fall_payload_matches_plan_contract():
+def test_fall_payload_matches_backend_contract():
     p = fall_payload(EVENT, CAMERA_ID, ZONE_ID, sent_at=EVENT.timestamp + 0.04, snapshot_base_url="http://10.0.0.5:8001/")
-    assert p["camera_id"] == CAMERA_ID
+    eid = event_id(CAMERA_ID, EVENT)
+    assert str(UUID(eid)) == eid == p["event_id"]
+    assert p["camera_id"] == CAMERA_ID and p["zone_id"] == ZONE_ID
     assert p["timestamp"] == "2026-10-03T21:14:07.412Z"
     assert p["event_type"] == "fall"
     assert p["pose_confidence"] == 0.812
     m = p["metadata"]
-    assert m["event_id"] == "zone-1-cam-1-3-1791062047412" == event_id(CAMERA_ID, EVENT)
-    assert m["zone_id"] == ZONE_ID and m["track_id"] == 3
+    assert m["track_id"] == 3
     assert m["latency_ms"] == 1252
     assert m["trigger"] == "auto"
-    assert m["snapshot_url"] == "http://10.0.0.5:8001/snapshot/zone-1-cam-1-3-1791062047412.jpg"
+    assert m["snapshot_url"] == f"http://10.0.0.5:8001/snapshot/{eid}.jpg"
+
+
+def test_event_id_is_stable_for_retries_and_unique_per_fall():
+    from dataclasses import replace
+
+    assert event_id(CAMERA_ID, EVENT) == event_id(CAMERA_ID, EVENT)
+    assert event_id(CAMERA_ID, EVENT) != event_id(CAMERA_ID, replace(EVENT, track_id=4))
+    assert event_id(CAMERA_ID, EVENT) != event_id("zone-2-cam-1", EVENT)
 
 
 def test_manual_event_is_labelled_manual():
@@ -69,9 +80,11 @@ def test_metadata_is_flat_and_has_no_nulls():
 
 def test_payloads_validate_against_backend_schema():
     schemas = _backend_schemas()
-    fall = schemas.TelemetryEvent(**fall_payload(EVENT, CAMERA_ID, ZONE_ID, sent_at=EVENT.timestamp))
+    snapshot = "http://10.0.0.5:8001"
+    fall = schemas.TelemetryEvent(**fall_payload(EVENT, CAMERA_ID, ZONE_ID, EVENT.timestamp, snapshot))
     beat = schemas.TelemetryEvent(**heartbeat_payload(CAMERA_ID, ZONE_ID, EVENT.timestamp, 28.0, 1))
-    assert fall.event_type == "fall" and beat.pose_confidence == 0.0
+    assert fall.event_type == "fall" and fall.zone_id == ZONE_ID
+    assert beat.event_type == "normal" and beat.pose_confidence == 0.0
 
 
 @pytest.fixture
@@ -81,12 +94,13 @@ def free_port():
         return s.getsockname()[1]
 
 
-def _start_backend(port: int):
+def _start_backend(port: int, tmp_path: Path, api_key: str = ""):
     _backend_schemas()
     import uvicorn
-    from app.main import active_incidents, app
+    from app.config import Settings
+    from app.main import create_app
 
-    active_incidents.clear()
+    app = create_app(Settings(sqlite_path=str(tmp_path / "incidents.sqlite3"), api_key=api_key))
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
@@ -95,6 +109,11 @@ def _start_backend(port: int):
         time.sleep(0.05)
     assert server.started, "backend did not start"
     return server, thread
+
+
+def _incidents(port: int, api_key: str = "") -> list:
+    headers = {"X-API-Key": api_key} if api_key else {}
+    return requests.get(f"http://127.0.0.1:{port}/api/v1/incidents", headers=headers, timeout=2).json()
 
 
 def _wait_for(condition, timeout=6.0):
@@ -115,33 +134,81 @@ def test_send_does_not_block_when_backend_is_down(free_port):
     assert _wait_for(lambda: emitter.pending_falls == 20)
 
 
-def test_fall_reaches_real_backend_and_becomes_incident(free_port):
-    server, thread = _start_backend(free_port)
-    base = f"http://127.0.0.1:{free_port}"
+def test_fall_reaches_real_backend_and_becomes_incident(free_port, tmp_path):
+    server, thread = _start_backend(free_port, tmp_path)
     try:
-        emitter = TelemetryEmitter(base)
+        emitter = TelemetryEmitter(f"http://127.0.0.1:{free_port}")
         emitter.send(heartbeat_payload(CAMERA_ID, ZONE_ID, time.time(), 28.0, 1))
         emitter.send(fall_payload(EVENT, CAMERA_ID, ZONE_ID, sent_at=time.time()))
         assert _wait_for(lambda: emitter.delivered == 2)
-        incidents = requests.get(f"{base}/api/v1/incidents", timeout=2).json()
-        assert len(incidents) == 1  # heartbeat is not an incident
-        assert incidents[0]["description"] == "Detected fall"
+        incidents = _incidents(free_port)
+        assert len(incidents) == 1  # heartbeat is acknowledged but not stored
+        assert incidents[0]["incident_id"] == event_id(CAMERA_ID, EVENT)
+        assert incidents[0]["zone_id"] == ZONE_ID and incidents[0]["event_type"] == "fall"
+        assert emitter.rejected == 0
         emitter.close()
     finally:
         server.should_exit = True
         thread.join(5)
 
 
-def test_falls_queued_during_outage_are_delivered_on_recovery(free_port):
+def test_resent_fall_is_a_duplicate_not_a_second_incident(free_port, tmp_path):
+    server, thread = _start_backend(free_port, tmp_path)
+    try:
+        emitter = TelemetryEmitter(f"http://127.0.0.1:{free_port}")
+        payload = fall_payload(EVENT, CAMERA_ID, ZONE_ID, sent_at=time.time())
+        emitter.send(payload)
+        emitter.send(payload)
+        assert _wait_for(lambda: emitter.delivered == 2)
+        assert len(_incidents(free_port)) == 1 and emitter.rejected == 0
+        emitter.close()
+    finally:
+        server.should_exit = True
+        thread.join(5)
+
+
+def test_api_key_is_sent_and_a_wrong_key_is_counted_as_rejected(free_port, tmp_path):
+    server, thread = _start_backend(free_port, tmp_path, api_key="team-secret")
+    try:
+        good = TelemetryEmitter(f"http://127.0.0.1:{free_port}", api_key="team-secret")
+        good.send(fall_payload(EVENT, CAMERA_ID, ZONE_ID, sent_at=time.time()))
+        assert _wait_for(lambda: good.delivered == 1) and good.rejected == 0
+
+        bad = TelemetryEmitter(f"http://127.0.0.1:{free_port}", api_key="wrong")
+        from dataclasses import replace
+        bad.send(fall_payload(replace(EVENT, track_id=9), CAMERA_ID, ZONE_ID, sent_at=time.time()))
+        assert _wait_for(lambda: bad.rejected == 1) and bad.pending_falls == 0
+        assert len(_incidents(free_port, "team-secret")) == 1
+        good.close(), bad.close()
+    finally:
+        server.should_exit = True
+        thread.join(5)
+
+
+def test_fall_ignored_by_backend_is_counted_as_rejected(free_port, tmp_path):
+    from dataclasses import replace
+
+    server, thread = _start_backend(free_port, tmp_path)
+    try:
+        emitter = TelemetryEmitter(f"http://127.0.0.1:{free_port}")
+        emitter.send(fall_payload(replace(EVENT, pose_confidence=0.5), CAMERA_ID, ZONE_ID, sent_at=time.time()))
+        assert _wait_for(lambda: emitter.rejected == 1)
+        assert _incidents(free_port) == []
+        emitter.close()
+    finally:
+        server.should_exit = True
+        thread.join(5)
+
+
+def test_falls_queued_during_outage_are_delivered_on_recovery(free_port, tmp_path):
     emitter = TelemetryEmitter(f"http://127.0.0.1:{free_port}")
     emitter.send(fall_payload(EVENT, CAMERA_ID, ZONE_ID, sent_at=time.time()))
     assert _wait_for(lambda: emitter.pending_falls == 1)
 
-    server, thread = _start_backend(free_port)
+    server, thread = _start_backend(free_port, tmp_path)
     try:
         assert _wait_for(lambda: emitter.pending_falls == 0, timeout=10)
-        incidents = requests.get(f"http://127.0.0.1:{free_port}/api/v1/incidents", timeout=2).json()
-        assert len(incidents) == 1
+        assert len(_incidents(free_port)) == 1
         emitter.close()
     finally:
         server.should_exit = True
