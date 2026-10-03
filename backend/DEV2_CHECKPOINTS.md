@@ -80,6 +80,16 @@ All 29 automated tests pass. SMS was forced to dry-run and Coach to local summar
 This validates the backend interfaces with simulated clients, not the physical CV camera or Dev 3 UI.
 Live Gemini and team-device end-to-end verification are still outstanding for this stage.
 
+Dev 1 sender milestone PASSED: fast-forwarded the backend branch to merged main `527e650`
+and ran `python -m app.verify_cv_integration` using the actual CV `TelemetryEmitter` and
+`fall_payload` functions. Dev 1's sender uses REST with `X-API-Key`; the backend broadcasts to
+dashboard WebSockets. No payload or authentication fixes were needed. Live Supabase probe:
+`60802f3d-af91-5e01-8800-4fb4c0e0ff92`. All nine checks passed, including a confidence-0.7 fall,
+duplicate retry, heartbeat, single persisted incident, preserved CV metadata/snapshot URL, and
+resolution broadcast. Observed send-to-broadcast latency was 301.7 ms for this run.
+The combined backend + Dev 1 emitter suite passes 41 tests. This used a synthetic FallEvent and
+real transport code; physical camera detection, image serving, and cross-laptop networking still need rehearsal.
+
 Required verification: real CV sender connects, an event reaches the team's dashboard and database,
 and the Coach uses the new incident. Dev 1 owns the camera pipeline; Dev 3 owns dashboard/chat UI.
 The current checked-out frontend still uses sample data; full team integration is not complete.
