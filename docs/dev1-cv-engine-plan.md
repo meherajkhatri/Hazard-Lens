@@ -80,11 +80,16 @@ Run per tracked person (ByteTrack ID from `model.track`). Use COCO keypoints: sh
 ```
 UPRIGHT ──(drop_velocity ≥ FALL_DROP_VELOCITY = 0.5 /s,
            i.e. hips drop ≥ 30% of body height within 0.6s)──▶ FALLING
-FALLING ──(horizontal for ≥ DOWN_CONFIRM_S = 1.0s)──▶ DOWN  → emit ONE FallEvent
+FALLING ──(down for ≥ DOWN_CONFIRM_S = 1.0s)──▶ DOWN  → emit ONE FallEvent
+           down = horizontal OR collapsed
            horizontal = torso_angle_deg ≥ DOWN_TORSO_MIN_DEG (60)
                         AND bbox_aspect ≥ DOWN_ASPECT_MIN (1.0)
-FALLING ──(not horizontal FALLING_TIMEOUT_S = 1.5s after the drop)──▶ UPRIGHT   (crouch/sit, no event)
-DOWN    ──(torso_angle_deg ≤ UPRIGHT_TORSO_MAX_DEG (30) for ≥ RECOVER_CONFIRM_S = 1.0s)──▶ UPRIGHT
+           collapsed  = box height ≤ COLLAPSE_HEIGHT_RATIO (0.5) × standing height
+                        (catches people lying toward/away from the camera, whose
+                         torso still looks upright in the image)
+FALLING ──(not down FALLING_TIMEOUT_S = 1.5s after the drop)──▶ UPRIGHT   (crouch/sit, no event)
+DOWN    ──(torso_angle_deg ≤ UPRIGHT_TORSO_MAX_DEG (30) AND box height ≥ RECOVER_HEIGHT_RATIO (0.75)
+           × standing height, for ≥ RECOVER_CONFIRM_S = 1.0s)──▶ UPRIGHT
 cooldown: no second FallEvent for the same track_id within EVENT_COOLDOWN_S = 15s
 tracks not seen for TRACK_TTL_S = 3s are forgotten
 ```

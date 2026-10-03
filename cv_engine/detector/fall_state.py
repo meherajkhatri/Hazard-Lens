@@ -24,6 +24,12 @@ from cv_engine.detector.types import (
 MOTION_MIN_CONF = 0.3
 # Cap on keypoint samples kept while a person is down (about 20s at 30 FPS).
 MAX_DOWN_SAMPLES = 600
+# How fast the standing-height reference follows a person who moves nearer or further.
+STANDING_HEIGHT_ALPHA = 0.05
+
+
+def bbox_height(person: PersonPose) -> float:
+    return max(person.bbox[3] - person.bbox[1], 1.0)
 
 
 @dataclass
@@ -43,6 +49,8 @@ class _Track:
     down_keypoints: list = field(default_factory=list)
     down_scale: float = 0.0
     outcome: Assessment | None = None
+    # Box height while standing, learned in UPRIGHT; None until first seen upright.
+    standing_height: float | None = None
 
 
 def joint_spread(samples: list, body_scale: float) -> float:
@@ -70,17 +78,20 @@ CONFIRMED_FALL_BASE = 0.65
 MANUAL_CONFIDENCE = 1.0
 
 
-def fall_quality(features: PoseFeatures, peak_drop_velocity: float) -> float:
+def fall_quality(features: PoseFeatures, peak_drop_velocity: float, collapse: float = 0.0) -> float:
+    """`collapse` is 1 - height / standing height: a person lying toward the camera
+    scores on collapse instead of torso angle."""
+    lying = max(min(features.torso_angle_deg / 90.0, 1.0), min(collapse / 0.5, 1.0))
     signal = (
-        0.4 * min(features.torso_angle_deg / 90.0, 1.0)
+        0.4 * lying
         + 0.3 * min(features.bbox_aspect / 1.5, 1.0)
         + 0.3 * min(peak_drop_velocity / 1.0, 1.0)
     )
     return max(0.0, min(signal * features.keypoint_conf, 1.0))
 
 
-def pose_confidence(features: PoseFeatures, peak_drop_velocity: float) -> float:
-    return CONFIRMED_FALL_BASE + (1.0 - CONFIRMED_FALL_BASE) * fall_quality(features, peak_drop_velocity)
+def pose_confidence(features: PoseFeatures, peak_drop_velocity: float, collapse: float = 0.0) -> float:
+    return CONFIRMED_FALL_BASE + (1.0 - CONFIRMED_FALL_BASE) * fall_quality(features, peak_drop_velocity, collapse)
 
 
 class FallDetector:
@@ -163,12 +174,19 @@ class FallDetector:
         while track.history and now - track.history[0][0] > th.FALL_DROP_WINDOW_S:
             track.history.popleft()
 
+        height = bbox_height(person)
+        collapse = 1.0 - height / track.standing_height if track.standing_height else 0.0
+
         if track.state is FallState.UPRIGHT:
             if velocity >= th.FALL_DROP_VELOCITY:
                 track.state = FallState.FALLING
                 track.drop_started_at = now
                 track.peak_drop_velocity = velocity
                 track.horizontal_since = None
+            elif track.standing_height is None:
+                track.standing_height = height
+            else:
+                track.standing_height += STANDING_HEIGHT_ALPHA * (height - track.standing_height)
             return None
 
         if track.state is FallState.FALLING:
@@ -177,7 +195,8 @@ class FallDetector:
                 features.torso_angle_deg >= th.DOWN_TORSO_MIN_DEG
                 and features.bbox_aspect >= th.DOWN_ASPECT_MIN
             )
-            if not horizontal:
+            collapsed = collapse >= 1.0 - th.COLLAPSE_HEIGHT_RATIO
+            if not (horizontal or collapsed):
                 track.horizontal_since = None
                 if now - track.drop_started_at > th.FALLING_TIMEOUT_S:
                     track.state = FallState.UPRIGHT
@@ -198,7 +217,7 @@ class FallDetector:
                 track_id=person.track_id,
                 timestamp=now,
                 drop_started_at=track.drop_started_at,
-                pose_confidence=pose_confidence(features, track.peak_drop_velocity),
+                pose_confidence=pose_confidence(features, track.peak_drop_velocity, collapse),
                 torso_angle_deg=features.torso_angle_deg,
                 bbox_aspect=features.bbox_aspect,
                 drop_velocity=track.peak_drop_velocity,
@@ -208,7 +227,10 @@ class FallDetector:
             return track.fall
 
         # DOWN: follow up on the fall, and wait for a sustained return to upright.
-        if features.torso_angle_deg <= th.UPRIGHT_TORSO_MAX_DEG:
+        # Height must come back too: someone lying toward the camera has an
+        # upright-looking torso the whole time.
+        height_back = track.standing_height is None or height >= th.RECOVER_HEIGHT_RATIO * track.standing_height
+        if features.torso_angle_deg <= th.UPRIGHT_TORSO_MAX_DEG and height_back:
             if track.upright_since is None:
                 track.upright_since = now
             if now - track.upright_since >= th.RECOVER_CONFIRM_S:
