@@ -1,6 +1,7 @@
 """parse_result runs on fake Ultralytics output; the real-model test is skipped
 unless ultralytics and the yolov8n-pose weights are available."""
 
+import os
 from pathlib import Path
 
 import numpy as np
@@ -56,7 +57,7 @@ def test_parse_result_drops_untracked_detections():
 
 def test_real_model_on_sample_image():
     ultralytics = pytest.importorskip("ultralytics")
-    weights = Path("yolov8n-pose.pt")
+    weights = Path(os.getenv("MODEL_PATH", "yolov8n-pose.pt"))
     if not weights.exists():
         pytest.skip("yolov8n-pose.pt not downloaded")
     import cv2
