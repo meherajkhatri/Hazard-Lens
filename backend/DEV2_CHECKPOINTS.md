@@ -1,7 +1,8 @@
 # Dev 2 sequential verification
 
 FastAPI replaces Express by team decision. Each stage must pass before work advances
-to the next stage. Existing code and mocked tests are not proof of live integration.
+to the next stage, except for explicit user-approved deferrals recorded below.
+Existing code and mocked tests are not proof of live integration.
 Updated October 3, 2026.
 
 ## Hours 0–3 — PASSED
@@ -35,7 +36,7 @@ It calls Supabase directly and never calls Twilio or the telemetry alert flow. R
 is available without `--write-probe`, but does not pass the gate because write access remains untested.
 The command returns nonzero for missing configuration, incomplete checks, or failures; it never prints keys.
 
-## Hours 3–10 — IN PROGRESS
+## Hours 3–10 — CORE VERIFIED; LIVE TWILIO DELAYED
 
 Existing implementation: REST ingestion, deduplication, persistent incident log, Twilio adapter,
 recipient allowlist, and labeled dry-run results. Local/mocked tests passed in the initial milestone.
@@ -46,20 +47,23 @@ duplicate retries, conflicting-ID rejection, readback, acknowledgement, resoluti
 recreating the FastAPI app. This used the in-process HTTP test harness against real Supabase; the
 network listener is covered separately by the server startup test. All 27 automated tests pass.
 
-Remaining blocker: Twilio console redirects to a login page that fails with `ERR_CONNECTION_RESET`
-in the in-app browser (two attempts). User sign-in/account setup in a working browser is pending.
-No real SMS has been sent and phone delivery is not verified. Hours 10–16 remains gated.
+Delayed dependency: Twilio console redirects to a login page that fails with `ERR_CONNECTION_RESET`
+in the in-app browser (two attempts). On October 3 the user reported Twilio servers down and explicitly
+authorized marking this delayed and advancing. A provider-wide outage was not independently verified.
+No real SMS has been sent and phone delivery is not verified. Keep `SMS_MODE=dry_run`; do not label
+dry-run results as sent. Resume live verification when the account, sender, and demo recipients are available.
+Hours 10–16 may proceed under this exception; SMS delivery remains an open acceptance item.
 
 Rehearsal handoff: local `MIN_CONFIDENCE=0.7`, `ALERT_COOLDOWN_SECONDS=0`; an identical copy of
 the backend API key is prepared in ignored `backend/data/dev1.env` for private transfer to Dev 1.
-No delivery to Dev 1 has been claimed. The public template keeps its default cooldown of 30 seconds.
+The user will deliver the key privately to Dev 1. The public template keeps its default cooldown of 30 seconds.
 
 Required verification after the first gate: real Supabase readback after REST ingestion; live Twilio
 submission to the team's configured demo recipients; phone receipt confirmed by the user; duplicate
 replay sends no second alert; failure paths preserve the incident and honest SMS status.
 Seed tooling is available for Dev 4's historical data.
 
-## Hours 10–16 — NOT ADVANCED
+## Hours 10–16 — IN PROGRESS
 
 Existing implementation: camera WebSocket endpoint, dashboard broadcast endpoint, REST resync contract,
 and backend Gemini context retrieval. These have local/mocked tests only.
