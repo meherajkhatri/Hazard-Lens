@@ -3,13 +3,20 @@
     python -m cv_engine.run                      # webcam (CAMERA_INDEX)
     python -m cv_engine.run --video clip.mp4     # replay a recorded clip
     python -m cv_engine.run --video clip.mp4 --loop --skeleton-only
+    python -m cv_engine.run --list-cameras       # which camera indexes work
+
+Several cameras: one process per camera, each with its own id, index and port:
+    python -m cv_engine.run --camera-id zone-1-cam-1 --zone-id "Zone 1" --camera-index 1 --port 8001
+    python -m cv_engine.run --camera-id zone-1-cam-2 --zone-id "Zone 1" --camera-index 2 --port 8002
 
 Keys in the preview window: q = quit, f = manual fall for the largest person.
 """
 
 import argparse
+import dataclasses
 import logging
 import socket
+import sys
 import time
 
 import cv2
@@ -23,6 +30,31 @@ from cv_engine.transport.emitter import event_id, fall_payload, heartbeat_payloa
 
 log = logging.getLogger("cv_engine")
 FPS_SMOOTHING = 0.9
+# Lower resolution keeps several USB webcams within one laptop's USB bandwidth;
+# the pose model resizes to 640 anyway.
+CAMERA_WIDTH, CAMERA_HEIGHT = 640, 480
+MAX_CAMERA_INDEX = 6
+
+
+def open_camera(index: int) -> cv2.VideoCapture:
+    # DirectShow opens faster on Windows and handles several USB webcams better.
+    backend = cv2.CAP_DSHOW if sys.platform == "win32" else cv2.CAP_ANY
+    capture = cv2.VideoCapture(index, backend)
+    capture.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
+    capture.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
+    return capture
+
+
+def list_cameras() -> list[tuple[int, int, int]]:
+    """(index, width, height) for every camera index that delivers a frame."""
+    found = []
+    for index in range(MAX_CAMERA_INDEX):
+        capture = open_camera(index)
+        ok, frame = capture.read() if capture.isOpened() else (False, None)
+        if ok and frame is not None:
+            found.append((index, frame.shape[1], frame.shape[0]))
+        capture.release()
+    return found
 
 
 def detect_public_host() -> str:
@@ -104,7 +136,24 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument("--skeleton-only", action="store_true", help="privacy mode: never show or stream camera pixels")
     parser.add_argument("--no-window", action="store_true", help="don't open a preview window (headless)")
     parser.add_argument("--device", help="override DEVICE: cuda, mps or cpu")
+    # Per-camera overrides, so several engines can share one cv_engine/.env.
+    parser.add_argument("--camera-id", help="override CAMERA_ID, e.g. zone-1-cam-2")
+    parser.add_argument("--zone-id", help='override ZONE_ID, e.g. "Forklift Corridor"')
+    parser.add_argument("--camera-index", type=int, help="override CAMERA_INDEX (see --list-cameras)")
+    parser.add_argument("--port", type=int, help="override STREAM_PORT; each camera needs its own")
+    parser.add_argument("--list-cameras", action="store_true", help="show which camera indexes work, then exit")
     return parser.parse_args(argv)
+
+
+def apply_overrides(cfg: EngineConfig, args: argparse.Namespace) -> EngineConfig:
+    overrides = {
+        "CAMERA_ID": args.camera_id,
+        "ZONE_ID": args.zone_id,
+        "CAMERA_INDEX": args.camera_index,
+        "STREAM_PORT": args.port,
+        "DEVICE": args.device,
+    }
+    return dataclasses.replace(cfg, **{k: v for k, v in overrides.items() if v is not None})
 
 
 def main(argv=None) -> None:
@@ -114,9 +163,17 @@ def main(argv=None) -> None:
     from cv_engine.transport.streamer import MjpegStreamer
 
     args = parse_args(argv)
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    cfg = EngineConfig()
-    device = args.device or cfg.DEVICE
+    if args.list_cameras:
+        cameras = list_cameras()
+        for index, width, height in cameras:
+            print(f"camera index {index}: {width}x{height}")
+        if not cameras:
+            print("no cameras found")
+        return
+
+    cfg = apply_overrides(EngineConfig(), args)
+    logging.basicConfig(level=logging.INFO, format=f"%(asctime)s {cfg.CAMERA_ID} %(levelname)s %(message)s")
+    device = cfg.DEVICE
 
     log.info("loading %s on %s", cfg.MODEL_PATH, device)
     estimator = PoseEstimator(cfg.MODEL_PATH, device=device)
@@ -130,7 +187,7 @@ def main(argv=None) -> None:
                     skeleton_only=args.skeleton_only, snapshot_base_url=snapshot_base_url)
     log.info("stream: %s/stream   backend: %s", snapshot_base_url, cfg.BACKEND_URL)
 
-    capture = cv2.VideoCapture(args.video if args.video else cfg.CAMERA_INDEX)
+    capture = cv2.VideoCapture(args.video) if args.video else open_camera(cfg.CAMERA_INDEX)
     if not capture.isOpened():
         raise SystemExit(f"could not open {'video ' + args.video if args.video else 'camera ' + str(cfg.CAMERA_INDEX)}")
     video_fps = capture.get(cv2.CAP_PROP_FPS) or 30.0
@@ -154,7 +211,7 @@ def main(argv=None) -> None:
             force_fall = False
 
             if not args.no_window:
-                cv2.imshow("Call-Help CV engine", annotated)
+                cv2.imshow(f"Call-Help {cfg.CAMERA_ID} ({cfg.ZONE_ID})", annotated)
                 key = cv2.waitKey(1) & 0xFF
                 if key == ord("q"):
                     break

@@ -44,6 +44,21 @@ python -m cv_engine.run --video cv_engine/tests/clips/fall_03.mp4 --loop   # bac
 python -m cv_engine.run --skeleton-only                      # privacy mode
 ```
 
+### Several cameras
+
+One process per camera. They share `cv_engine/.env` (API key, backend URL) and each gets its own
+id, zone, camera index and stream port:
+
+```bash
+python -m cv_engine.run --list-cameras      # find the indexes; the built-in webcam is often 0
+python -m cv_engine.run --camera-id zone-1-cam-1 --zone-id "Zone 1" --camera-index 1 --port 8001
+python -m cv_engine.run --camera-id zone-1-cam-2 --zone-id "Zone 1" --camera-index 2 --port 8002
+python -m cv_engine.run --camera-id corridor-cam-1 --zone-id "Forklift Corridor" --camera-index 1 --port 8001   # on a second laptop
+```
+
+Webcams open at 640x480 so several fit in one laptop's USB bandwidth. Two cameras on one zone
+report the same fall twice; the backend's SMS cooldown must be per zone so only one text goes out.
+
 Preview window keys: `q` quit, `f` manual fall for the largest person (sent with `trigger: "manual"`).
 
 ## Tuning thresholds on recorded clips (GPU cluster or laptop)
