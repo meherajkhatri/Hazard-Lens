@@ -17,11 +17,15 @@ def parse_result(result) -> list[PersonPose]:
 
     ids = boxes.id.int().cpu().numpy()
     xyxy = boxes.xyxy.cpu().numpy()
-    kps = keypoints.data.cpu().numpy()  # (N, 17, 3): x, y, conf
+    kps = keypoints.data.cpu().numpy().astype(float)  # (N, 17, 3): x, y, conf
+    # Ultralytics moves keypoints it considers not visible to (0, 0) but keeps
+    # their confidence (often 0.3-0.5). Zero it so nothing downstream trusts them.
+    hidden = (kps[..., 0] == 0) & (kps[..., 1] == 0)
+    kps[hidden, 2] = 0.0
     return [
         PersonPose(
             track_id=int(track_id),
-            keypoints=np.asarray(kps[i], dtype=float),
+            keypoints=kps[i],
             bbox=tuple(float(v) for v in xyxy[i]),
         )
         for i, track_id in enumerate(ids)

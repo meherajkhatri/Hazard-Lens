@@ -72,3 +72,12 @@ def test_real_model_on_sample_image():
     # People standing in the photo should read as upright.
     upright = [f for f in map(compute_features, people) if f and f.keypoint_conf > 0.5]
     assert upright and all(f.torso_angle_deg < 30 for f in upright)
+
+
+def test_parse_result_zeroes_confidence_of_keypoints_moved_to_origin():
+    result = _Result(ids=[1.0], n=1)
+    data = result.keypoints.data.numpy()
+    data[0, 6] = [0.0, 0.0, 0.42]  # hidden right shoulder, as Ultralytics reports it
+    person = parse_result(result)[0]
+    assert person.keypoints[6, 2] == 0.0
+    assert person.keypoints[5, 2] == data[0, 5, 2]
