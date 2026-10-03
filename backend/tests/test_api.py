@@ -53,6 +53,18 @@ def test_generated_identity_and_cooldown(client):
     assert len(client.get("/api/v1/incidents").json()) == 2
 
 
+def test_rehearsal_accepts_threshold_and_dispatches_two_distinct_falls(settings):
+    settings.min_confidence = 0.7
+    settings.cooldown_seconds = 0
+    with TestClient(create_app(settings), headers={"X-API-Key": "test-key"}) as client:
+        first = client.post("/api/v1/telemetry", json=event(confidence_score=0.7)).json()
+        second = client.post("/api/v1/telemetry", json=event(confidence_score=0.7)).json()
+        assert first["status"] == second["status"] == "received"
+        assert first["incident"]["sms_status"] == second["incident"]["sms_status"] == "dry_run"
+        assert first["incident"]["incident_id"] != second["incident"]["incident_id"]
+        assert len(client.get("/api/v1/incidents").json()) == 2
+
+
 @pytest.mark.parametrize("updates", [{"confidence_score": 2}, {"timestamp": "2026-10-03T12:00:00"},
     {"pose_event": "other"}, {"zone_id": " "}, {"camera_id": ""}])
 def test_validation(client, updates):
