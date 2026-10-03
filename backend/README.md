@@ -4,6 +4,8 @@ FastAPI provides incident ingestion, persistence, live dashboard events, fall SM
 and a Gemini Safety Coach. Camera inference and video streaming belong to the CV module;
 this API accepts event JSON, not video frames. The existing frontend still uses sample data.
 
+See [Dev 2 checkpoints](DEV2_CHECKPOINTS.md) for the sequential verification gates and live setup probe.
+
 ## Run locally (Python 3.12)
 
 From `backend/`, in PowerShell:
