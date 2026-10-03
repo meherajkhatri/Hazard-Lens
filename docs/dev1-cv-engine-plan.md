@@ -23,21 +23,43 @@
 
 ```
 cv_engine/
-├── requirements.txt        # ultralytics, opencv-python, requests, numpy
-├── config.py               # camera index, CAMERA_ID, ZONE_ID, BACKEND_URL, thresholds
+├── requirements.txt        # ultralytics, opencv-python, requests, numpy, pytest
+├── config.py               # EngineConfig (CAMERA_ID, ZONE_ID, BACKEND_URL, ...) + FallThresholds
 ├── run.py                  # entrypoint: capture → infer → detect → emit → stream
 ├── detector/
-│   ├── pose.py             # YOLOv8-pose wrapper, model.track(persist=True) → per-person keypoints
-│   ├── features.py         # torso angle, bbox aspect, hip-drop velocity, keypoint confidence
-│   └── fall_state.py       # per-track state machine + cooldown
-├── io/
-│   ├── emitter.py          # POST to backend, retry + local queue if backend is down
-│   └── streamer.py         # MJPEG server on :8001 (/stream, /health, /snapshot)
-├── overlay.py              # draws skeleton, box (green → amber → red), status banner, FPS
+│   ├── types.py            # PersonPose, PoseFeatures, FallState, FallEvent (no heavy deps)
+│   ├── pose.py             # PoseEstimator: YOLOv8-pose, model.track(persist=True) → list[PersonPose]
+│   ├── features.py         # compute_features(): torso angle, bbox aspect, body scale, keypoint conf
+│   └── fall_state.py       # FallDetector: per-track state machine + cooldown → list[FallEvent]
+├── transport/
+│   ├── emitter.py          # TelemetryEmitter: POST to backend, retry + local queue if backend is down
+│   └── streamer.py         # MjpegStreamer on :8001 (/stream, /health, /snapshot/<event_id>.jpg)
+├── overlay.py              # draws skeleton, box colored by FallState, status banner, FPS
 └── tests/
-    ├── clips/              # recorded test videos (gitignored if large)
-    └── test_fall_state.py  # unit tests on feature sequences, no camera needed
+    ├── clips/              # recorded test videos (gitignored)
+    ├── test_features.py    # unit tests on synthetic keypoints, no camera needed
+    └── test_fall_state.py  # unit tests on frame sequences, no camera needed
 ```
+
+Run everything **from the repo root** as a module: `python -m cv_engine.run` (add `--video <path>` for replay). The package is named `transport/`, not `io/`, because a local `io` package would shadow Python's built-in `io` module and break numpy/OpenCV imports.
+
+### Code terms (use these names everywhere: code, payloads, chat)
+
+| Term | Meaning | Unit / values |
+|---|---|---|
+| `PersonPose` | One tracked person in one frame: `track_id`, `keypoints` (17×3: x, y, conf), `bbox` (x1, y1, x2, y2) | pixels |
+| `PoseFeatures` | Per-frame features computed from a `PersonPose` | — |
+| `torso_angle_deg` | Angle of hip-mid → shoulder-mid vs. vertical | 0° upright, 90° horizontal |
+| `bbox_aspect` | bbox width / height | ratio |
+| `body_scale` | Shoulder-mid → ankle-mid distance (orientation-independent "body height"); falls back to 3 × torso length if ankles aren't visible | pixels |
+| `hip_y` | Hip-mid y coordinate (image y grows downward) | pixels |
+| `keypoint_conf` | Mean confidence of shoulders + hips (keypoints 5, 6, 11, 12) | 0–1 |
+| `drop_velocity` | How fast `hip_y` moves down, normalized by `body_scale` | body-heights / second |
+| `FallState` | `UPRIGHT` (green box), `FALLING` (amber), `DOWN` (red) | enum |
+| `FallDetector` | Holds one state machine per `track_id`; `update(people, now)` → `list[FallEvent]` | — |
+| `FallEvent` | One confirmed fall; maps 1:1 to a `fall` telemetry payload | — |
+| `pose_confidence` | Final score sent to the backend | 0–1 |
+| `CAMERA_ID` / `ZONE_ID` | `"zone-1-cam-1"` / `"Zone 1"` | config |
 
 `backend/app/cv/pose_tracker.py` stays as-is for now. Once `cv_engine/` works, we either delete it or make it a thin import. That's a call for Dev 2 later, not a blocker.
 
@@ -47,23 +69,27 @@ cv_engine/
 
 Run per tracked person (ByteTrack ID from `model.track`). Use COCO keypoints: shoulders (5, 6), hips (11, 12), ankles (15, 16).
 
-**Features per frame**
-1. **Torso angle**: angle between (hip-mid → shoulder-mid) and vertical. Standing ≈ 0–20°, on the floor ≈ 70–90°.
-2. **Bbox aspect**: `w / h`. Standing < 0.6, lying > 1.2.
-3. **Hip-drop velocity**: change in hip-mid `y` over the last ~0.5 s, **normalized by body height** so it doesn't depend on distance from the camera.
-4. **Keypoint confidence**: mean confidence of the 6 core joints. Ignore frames below 0.4.
+**Features per frame (`PoseFeatures`)**
+1. **`torso_angle_deg`**: angle between (hip-mid → shoulder-mid) and vertical. Standing ≈ 0–20°, on the floor ≈ 70–90°.
+2. **`bbox_aspect`**: `w / h`. Standing < 0.6, lying > 1.0.
+3. **`drop_velocity`**: downward movement of `hip_y` over the last `FALL_DROP_WINDOW_S` (0.6s), divided by `body_scale` and by elapsed time. Normalizing by `body_scale` means it doesn't depend on distance from the camera.
+4. **`keypoint_conf`**: mean confidence of shoulders + hips. Frames below `MIN_KEYPOINT_CONF` (0.4) are skipped.
 
-**State machine (per track ID)**
+**State machine (`FallDetector`, one per `track_id`)**. Threshold names are the fields of `FallThresholds` in `config.py`:
 ```
-UPRIGHT ──(hip drops > 30% body height in ≤0.6s)──▶ FALLING
-FALLING ──(torso > 60° AND aspect > 1.0 for ≥ 1.0s)──▶ DOWN  → emit ONE `fall` event
-FALLING ──(back upright within 1.5s)──▶ UPRIGHT               (was a crouch/sit, no event)
-DOWN    ──(torso < 30° for ≥ 1.0s)──▶ UPRIGHT                 (person recovered)
-cooldown: no second event for the same track ID for 15s
+UPRIGHT ──(drop_velocity ≥ FALL_DROP_VELOCITY = 0.5 /s,
+           i.e. hips drop ≥ 30% of body height within 0.6s)──▶ FALLING
+FALLING ──(horizontal for ≥ DOWN_CONFIRM_S = 1.0s)──▶ DOWN  → emit ONE FallEvent
+           horizontal = torso_angle_deg ≥ DOWN_TORSO_MIN_DEG (60)
+                        AND bbox_aspect ≥ DOWN_ASPECT_MIN (1.0)
+FALLING ──(not horizontal FALLING_TIMEOUT_S = 1.5s after the drop)──▶ UPRIGHT   (crouch/sit, no event)
+DOWN    ──(torso_angle_deg ≤ UPRIGHT_TORSO_MAX_DEG (30) for ≥ RECOVER_CONFIRM_S = 1.0s)──▶ UPRIGHT
+cooldown: no second FallEvent for the same track_id within EVENT_COOLDOWN_S = 15s
+tracks not seen for TRACK_TTL_S = 3s are forgotten
 ```
-Why this works: a **slow** lie-down never enters `FALLING` (no fast hip drop). A **crouch** never satisfies the torso angle. A **real fall** satisfies both. All thresholds go in `config.py` so they can be tuned live at the venue.
+Why this works: a **slow** lie-down never enters `FALLING` (no fast hip drop). A **crouch** never satisfies the torso angle. A **real fall** satisfies both. If the tracker gives a person a new `track_id` while they're on the floor, the new track never sees a drop, so there's no duplicate alert. All thresholds live in `config.py` so they can be tuned live at the venue.
 
-**Confidence score sent to the backend** = weighted mix of (torso angle normalized, aspect normalized, drop velocity normalized) × keypoint confidence, clipped to [0, 1].
+**`pose_confidence`** = (0.4 × min(`torso_angle_deg` / 90, 1) + 0.3 × min(`bbox_aspect` / 1.5, 1) + 0.3 × min(peak `drop_velocity` / 1.0, 1)) × `keypoint_conf`, clipped to [0, 1].
 
 ---
 
@@ -76,25 +102,31 @@ POST /api/v1/telemetry
 {
   "camera_id": "zone-1-cam-1",
   "timestamp": "2026-10-03T21:14:07.412Z",
-  "pose_confidence": 0.91,
+  "pose_confidence": 0.81,
   "event_type": "fall",
   "metadata": {
+    "event_id": "zone-1-cam-1-3-1791062047412",
     "zone_id": "Zone 1",
     "track_id": 3,
     "torso_angle_deg": 82.4,
     "bbox_aspect": 1.47,
-    "drop_velocity": 0.58,
-    "snapshot_url": "http://<dev1-ip>:8001/snapshot/1696367647412.jpg",
+    "drop_velocity": 0.92,
+    "keypoint_conf": 0.88,
+    "snapshot_url": "http://<dev1-ip>:8001/snapshot/zone-1-cam-1-3-1791062047412.jpg",
     "latency_ms": 640
   }
 }
 ```
 
+`event_id` = `<CAMERA_ID>-<track_id>-<epoch ms>`. `latency_ms` = time from the start of the drop to the moment the event is sent.
+
 Mapping from the original plan: `zone_id` → `metadata.zone_id`, `pose_event` → `event_type`, `confidence_score` → `pose_confidence`.
+
+Schema rules to respect: `pose_confidence` must be in [0, 1], and `metadata` values must be flat `str | int | float | bool` (no `null`, no nested objects or lists).
 
 **Ask Dev 2 for:** (a) set incident `location` from `metadata.zone_id` (it currently uses `camera_id`); (b) dedupe server-side on `camera_id + track_id` within 15s as a second safety net against SMS spam.
 
-**Heartbeat:** every 5s, `event_type: "heartbeat"` with `metadata.fps` and `metadata.people_detected`, so the dashboard can show "Camera online · 28 FPS". The backend already ignores non-incident event types, so this is safe.
+**Heartbeat:** every 5s, `event_type: "heartbeat"` with `pose_confidence: 0.0`, `metadata.fps` and `metadata.people_detected`, so the dashboard can show "Camera online · 28 FPS". The backend already ignores non-incident event types, so this is safe.
 
 ---
 
@@ -105,8 +137,8 @@ Mapping from the original plan: `zone_id` → `metadata.zone_id`, `pose_event` �
 | **0–1** | Check out the Logitech webcam from MLH (student ID). Mount it **high and angled down** (tripod or top of monitor, 1.5 m+ up, 3–4 m back). Agree on the §4 contract with Dev 2. | Full body is visible standing **and** lying on the floor. |
 | **1–3** | `pose.py` + `overlay.py`: webcam → YOLOv8n-pose → skeleton drawn. Check GPU: `device="cuda"` (RTX) or `"mps"` (Apple Silicon). | ≥ 20 FPS with a skeleton on screen. |
 | **3–4** | **Record test clips** (do this before writing detection logic): 5× walk, 5× sit in chair, 5× crouch/tie shoe, 5× slow lie-down, 10× fall (forward, backward, sideways). Put a mat down. | ~30 labeled clips in `tests/clips/`. |
-| **4–7** | `features.py` + `fall_state.py`. Add a `--video` flag so it runs on clips. Tune thresholds against the clips, not live. | All 10 falls trigger, **0** false alarms on the other 20. |
-| **7–9** | `streamer.py`: MJPEG on `:8001/stream`, plus `/snapshot` and `/health`. Box colors: green = upright, amber = falling, red = down. | Dev 3 can embed the stream from another laptop on venue Wi-Fi. |
+| **4–7** | `types.py` + `features.py` + `fall_state.py` with unit tests. Add a `--video` flag so it runs on clips. Tune thresholds against the clips, not live. | All 10 falls trigger, **0** false alarms on the other 20. |
+| **7–9** | `streamer.py`: MJPEG on `:8001/stream`, plus `/snapshot/<event_id>.jpg` and `/health`. Box colors by `FallState`: green = `UPRIGHT`, amber = `FALLING`, red = `DOWN`. | Dev 3 can embed the stream from another laptop on venue Wi-Fi. |
 | **9–10** | `emitter.py`: POST with 2 retries, in-memory queue if the backend is down, heartbeat thread. | Fall shows up in `GET /api/v1/incidents`. |
 | **10–14** | **Integration with Dev 2 + Dev 3.** Measure end-to-end latency (fall → dashboard red → phone SMS). | Full chain works 5/5 times, p95 < 2s to dashboard. |
 | **14–16** | Hardening: re-tune under **venue lighting**, a second person walking through frame, partial occlusion, the camera bumped slightly. | Still 0 false alarms with 2 people in frame. |
@@ -118,7 +150,7 @@ Mapping from the original plan: `zone_id` → `metadata.zone_id`, `pose_event` �
 
 1. **Hotspot, not hall Wi-Fi.** Put Dev 1, 2, and 3's laptops on one phone hotspot. Better still, run the backend on Dev 1's laptop for the demo so the critical path is `localhost`.
 2. **Hidden manual trigger.** Press `F` in the CV window to emit a real `fall` event for the most prominent person. This is a backup only, for when a stage-lighting problem stops detection. Practice so you never need it.
-3. **`--video` replay mode.** If the webcam dies, run `python run.py --video tests/clips/fall_03.mp4` and the whole pipeline still works off a recorded clip.
+3. **`--video` replay mode.** If the webcam dies, run `python -m cv_engine.run --video cv_engine/tests/clips/fall_03.mp4` and the whole pipeline still works off a recorded clip.
 4. **Warm start.** Load the model and run 10 dummy frames before going on stage. The first inference on a GPU can take 2–5s.
 5. **Fall safely.** Kneel first, then roll onto your side. It still produces a fast hip drop and a horizontal torso. Bring a mat or jacket.
 6. **Pin the camera.** Tape the tripod down. If someone bumps it, the thresholds can drift.
@@ -138,7 +170,7 @@ Do **not** start PPE detection or forklift-collision detection. They're in the b
 
 ## 8. Definition of done
 
-- [ ] `python cv_engine/run.py` starts webcam inference at ≥ 20 FPS with a skeleton overlay
+- [ ] `python -m cv_engine.run` starts webcam inference at ≥ 20 FPS with a skeleton overlay
 - [ ] 10/10 recorded falls detected, 0/20 false alarms on non-fall clips
 - [ ] Exactly **one** `fall` event per fall (state machine + cooldown verified)
 - [ ] Event appears in `GET /api/v1/incidents` in < 1s; dashboard turns red in < 2s
