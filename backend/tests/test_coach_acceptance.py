@@ -34,6 +34,21 @@ def test_coach_verifier_grounds_answers_and_disables_sms(tmp_path):
     assert len(result["answers"]) == 2
 
 
+def test_coach_retries_a_transient_provider_failure(tmp_path):
+    settings = Settings(sqlite_path=str(tmp_path / "coach.sqlite3"), api_key="test", gemini_key="test", gemini_model="test")
+    calls = 0
+    def provider(request):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return httpx.Response(503)
+        return httpx.Response(200, json={"candidates": [{"finishReason": "STOP", "content": {"parts": [{"text": "Recovered."}]}}]})
+    with TestClient(create_app(settings, transport=httpx.MockTransport(provider)), headers={"X-API-Key": "test"}) as client:
+        response = client.post("/api/v1/coach/chat", json={"question": "Summarize"})
+    assert response.status_code == 200
+    assert calls == 2
+
+
 @pytest.mark.parametrize("payload", [[], {"candidates": None}, {"candidates": []},
     {"candidates": [{"content": {"parts": None}}]},
     {"candidates": [{"finishReason": "MAX_TOKENS", "content": {"parts": [{"text": "Truncated"}]}}]},
