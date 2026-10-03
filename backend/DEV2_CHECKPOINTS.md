@@ -92,7 +92,16 @@ real transport code; physical camera detection, image serving, and cross-laptop 
 
 Required verification: real CV sender connects, an event reaches the team's dashboard and database,
 and the Coach uses the new incident. Dev 1 owns the camera pipeline; Dev 3 owns dashboard/chat UI.
-The current checked-out frontend still uses sample data; full team integration is not complete.
+The user reports frontend completion; backend work proceeds to Gemini verification. This report is
+not a claim that this agent has performed the physical cross-laptop rehearsal.
+
+Coach acceptance preparation: added `python -m app.verify_coach`, which requires real credentials,
+resolves a synthetic incident before model calls, checks a cited answer plus empty-zone retrieval,
+and leaves SMS disabled. Targeted Coach/API suite: 27 tests passed. Gemini context now preserves
+the simulated marker, and malformed/blocked/truncated provider responses fail explicitly.
+Live check currently blocked: Google AI Studio reports Service Not Allowed for the signed-in
+organization-managed Kent account. User account switch to an account with AI Studio access is pending.
+No Gemini API key/model is configured; no live Gemini answer has been verified yet.
 
 ## Hours 16–22 — NOT ADVANCED
 

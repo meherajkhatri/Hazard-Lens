@@ -17,7 +17,8 @@ class SafetyCoach:
         rows = rows[:50]
         context = [{"incident_id": str(row.incident_id), "zone_id": row.zone_id,
             "event_type": row.event_type, "detected_at": row.detected_at.isoformat(),
-            "status": row.status, "confidence": row.pose_confidence} for row in rows]
+            "status": row.status, "confidence": row.pose_confidence,
+            "simulated": row.metadata.get("simulated") is True} for row in rows]
         result = {"incident_ids": [row["incident_id"] for row in context], "context_count": len(rows),
             "truncated": truncated, "zone_id": request.zone_id}
         if not self.settings.gemini_key:
@@ -34,6 +35,7 @@ class SafetyCoach:
                     "Ground factual claims only in the supplied records; cite incident IDs for claims. These are at most 50 recent records, not a full history. "
                     "Respect timestamps and requested date/zone scope. Do not invent hazards, causes, counts, or locations. "
                     "Distinguish observations from suggested inspections. State insufficient evidence when appropriate. "
+                    "Records marked simulated are demo/test data: label them as simulated, never as real emergencies. "
                     "You cannot contact responders or confirm anyone's condition."}]},
                     "contents": [{"role": "user", "parts": [{"text": json.dumps({
                         "now_utc": datetime.now(timezone.utc).isoformat(), "question": request.question,
@@ -45,10 +47,13 @@ class SafetyCoach:
             )
             response.raise_for_status()
             data = response.json()
-            parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+            candidate = data.get("candidates", [{}])[0]
+            if candidate.get("finishReason") not in (None, "STOP"):
+                raise ValueError("Incomplete or blocked answer")
+            parts = candidate.get("content", {}).get("parts", [])
             answer = "\n".join(part["text"] for part in parts if "text" in part and not part.get("thought"))
             if not answer:
                 raise ValueError("No answer")
-        except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError):
+        except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError, AttributeError):
             raise HTTPException(502, "Safety Coach provider unavailable or returned no answer") from None
         return {**result, "mode": "gemini", "answer": answer}

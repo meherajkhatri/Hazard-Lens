@@ -17,6 +17,13 @@ storage. It retains a labeled resolved probe incident, reports one observed broa
 always forces dry-run SMS and the local Coach summary. This is a backend integration probe, not
 proof of the team's physical camera, frontend UI, live Gemini, or SMS delivery. It stops its server on exit.
 
+For live Gemini acceptance, configure `GEMINI_API_KEY` and `GEMINI_MODEL`, then run
+`python -m app.verify_coach`. It creates and resolves one labeled simulated incident, makes two
+Gemini requests (the incident's zone and an empty zone), checks source IDs/citation and live mode,
+and prints both answers for factual review. It always disables SMS. Missing credentials return
+`blocked`; mocked tests do not count as live acceptance. Simulated records are explicitly labeled
+in the model context; blocked, truncated, or malformed provider answers return HTTP 502.
+
 To verify Dev 1's actual sender, install `requirements-integration.txt` in the backend virtual environment,
 then run `python -m app.verify_cv_integration` from `backend/`. This imports the merged
 `cv_engine.transport.emitter.TelemetryEmitter`, sends a synthetic `FallEvent` through its real REST
