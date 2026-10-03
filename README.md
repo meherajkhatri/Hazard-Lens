@@ -41,11 +41,16 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
-### API Stubs
+See [backend setup and integration guide](backend/README.md) for Windows setup, environment variables,
+Supabase schema, WebSocket contracts, seed data, tests, and current operating limits.
 
-- `POST /api/v1/telemetry` – ingest pose/event telemetry from camera pipelines.
-- `GET /api/v1/incidents` – list active incidents for dashboards.
-- `POST /api/v1/alerts/sms` – webhook-style SMS dispatch integration point.
+### API
+
+- `POST /api/v1/telemetry` – ingest validated camera events with duplicate detection.
+- `GET /api/v1/incidents` – list/filter persisted incidents; PATCH by ID to acknowledge or resolve.
+- `POST /api/v1/alerts/sms` – dry-run or Twilio dispatch to configured recipients.
+- `POST /api/v1/coach/chat` – Gemini with retrieved incident context, or a labeled local summary.
+- `/ws/telemetry` and `/ws/incidents` – live ingestion and dashboard events.
 
 ## Computer Vision Module
 
@@ -68,7 +73,6 @@ npm run dev
 
 ## Next Steps
 
-- Connect telemetry endpoint to streaming ingestion infrastructure.
-- Replace SMS dispatcher stub with provider integration (Twilio, etc.).
-- Persist incidents in a database and add acknowledgement workflows.
-- Connect Safety Coach UI to an LLM-backed assistant API.
+- Connect the CV pipeline to the telemetry contract and dashboard to REST/WebSockets.
+- Configure and verify Supabase, Twilio, and Gemini with the team's accounts.
+- Connect the Safety Coach UI to the backend chat endpoint.
