@@ -37,3 +37,14 @@ def test_vision_warning_adds_amber_bar_at_bottom():
     out = draw_frame(FRAME, [], {}, "Zone 1", vision_warning="VISION IMPAIRED: GLARE")
     assert tuple(out[-3, 2]) == VISION_WARNING_COLOR
     assert not _has_color(draw_frame(FRAME, [], {}, "Zone 1"), VISION_WARNING_COLOR)
+
+
+def test_long_banner_text_stays_inside_a_640px_frame():
+    from cv_engine.overlay import BANNER_PX
+
+    frame = np.zeros((480, 640, 3), np.uint8)
+    long_status = "NO MOVEMENT - POSSIBLE MEDICAL EMERGENCY  |  Forklift Corridor | corridor-cam-1 | 24 FPS | 3 people"
+    out = draw_frame(frame, [], {}, long_status)
+    banner = out[:BANNER_PX]
+    text_cols = np.where((banner == 255).all(axis=-1).any(axis=0))[0]
+    assert text_cols.max() < 640 - 4  # last glyph ends before the right edge
