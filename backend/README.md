@@ -5,6 +5,10 @@ and a Gemini Safety Coach. Camera inference and video streaming belong to the CV
 this API accepts event JSON, not video frames. The existing frontend still uses sample data.
 
 See [Dev 2 checkpoints](DEV2_CHECKPOINTS.md) for the sequential verification gates and live setup probe.
+After configuring Supabase, `python -m app.verify_ingestion` exercises the actual FastAPI routes
+in-process against the live database, retains a labeled resolved test incident, and always forces SMS
+dry-run. It checks ingestion, retry handling, acknowledgement/resolution, and persistence across app restart.
+This verifies the API/database path, not delivery of a real SMS or the network listener.
 
 ## Run locally (Python 3.12)
 

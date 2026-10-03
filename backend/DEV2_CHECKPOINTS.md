@@ -40,6 +40,16 @@ The command returns nonzero for missing configuration, incomplete checks, or fai
 Existing implementation: REST ingestion, deduplication, persistent incident log, Twilio adapter,
 recipient allowlist, and labeled dry-run results. Local/mocked tests passed in the initial milestone.
 
+Live API/database verification passed with `python -m app.verify_ingestion` on October 3, 2026.
+Probe ID: `1ebd372c-cd58-49ac-b3ed-3c01eaf369af`. Verified readiness, ingestion, persisted dry-run status,
+duplicate retries, conflicting-ID rejection, readback, acknowledgement, resolution, and readback after
+recreating the FastAPI app. This used the in-process HTTP test harness against real Supabase; the
+network listener is covered separately by the server startup test. All 27 automated tests pass.
+
+Remaining blocker: Twilio console redirects to a login page that fails with `ERR_CONNECTION_RESET`
+in the in-app browser (two attempts). User sign-in/account setup in a working browser is pending.
+No real SMS has been sent and phone delivery is not verified. Hours 10–16 remains gated.
+
 Required verification after the first gate: real Supabase readback after REST ingestion; live Twilio
 submission to the team's configured demo recipients; phone receipt confirmed by the user; duplicate
 replay sends no second alert; failure paths preserve the incident and honest SMS status.
