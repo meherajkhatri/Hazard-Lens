@@ -95,6 +95,28 @@ Each qualifying event is persisted and broadcast. Only falls trigger automatic S
 type; it does not suppress incident records or dashboard events. Set it to 0 if each distinct event
 must alert, including separate people in the same camera view.
 
+### Dev 1 handoff and rehearsal
+
+Keep `MIN_CONFIDENCE=0.7` (or a deliberately agreed lower threshold). Events at exactly 0.7
+are accepted; below-threshold events return `ignored`, whereas a wrong API key returns 401
+over REST or closes the WebSocket with code 1008. A CV log saying `check API_KEY` means to
+compare the CV `API_KEY` with the backend's `API_KEY`, not the Supabase server key.
+
+The local rehearsal configuration uses `ALERT_COOLDOWN_SECONDS=0`. Restart the running backend
+after changing `.env`. Each rehearsal fall must use a new `event_id`; retries must keep the
+original ID and payload and will still be deduplicated. With the default 30-second cooldown,
+two distinct falls in the same camera/zone less than 30 seconds apart are both logged but
+only the first attempts SMS. Restore 30 after rehearsal if that is the team's desired alert policy.
+
+The matching Dev 1 key is provided locally in ignored `backend/data/dev1.env`. Transfer it privately
+to Dev 1 and copy `API_KEY` into the CV environment; never commit or send the full backend `.env`.
+REST sends it as `X-API-Key`; WebSockets send `{"api_key":"..."}` immediately after connecting.
+Dev 1 also needs the backend laptop's reachable address: `http://<backend-LAN-IP>:8000` for REST,
+or `ws://<backend-LAN-IP>:8000/ws/telemetry` for WebSockets. `localhost` on Dev 1's laptop points
+to Dev 1's machine. For the trusted rehearsal LAN, run Uvicorn with `--host 0.0.0.0` and allow
+the app through the local firewall as needed. No network exposure is enabled automatically here.
+SMS remains dry-run until Twilio is configured and enabled; disabling cooldown does not enable SMS.
+
 SMS results are persisted as `dry_run`, `not_configured`, `cooldown`, `pending`, a provider status such
 as `queued`, `failed`, `unknown`, or `partial`. A queued message is not proof of delivery. A timeout is
 `unknown` because the provider may have accepted the message. No automatic retries or delivery callbacks

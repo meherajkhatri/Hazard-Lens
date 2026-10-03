@@ -50,6 +50,10 @@ Remaining blocker: Twilio console redirects to a login page that fails with `ERR
 in the in-app browser (two attempts). User sign-in/account setup in a working browser is pending.
 No real SMS has been sent and phone delivery is not verified. Hours 10–16 remains gated.
 
+Rehearsal handoff: local `MIN_CONFIDENCE=0.7`, `ALERT_COOLDOWN_SECONDS=0`; an identical copy of
+the backend API key is prepared in ignored `backend/data/dev1.env` for private transfer to Dev 1.
+No delivery to Dev 1 has been claimed. The public template keeps its default cooldown of 30 seconds.
+
 Required verification after the first gate: real Supabase readback after REST ingestion; live Twilio
 submission to the team's configured demo recipients; phone receipt confirmed by the user; duplicate
 replay sends no second alert; failure paths preserve the incident and honest SMS status.
