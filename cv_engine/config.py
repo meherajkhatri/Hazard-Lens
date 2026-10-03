@@ -47,6 +47,11 @@ class FallThresholds:
     # Forget tracks not seen for this long.
     TRACK_TTL_S: float = 3.0
 
+    # Post-fall check: how long after DOWN to judge a person who is still down,
+    # and how much their joints may move (spread, in body-heights) to count as still.
+    ASSESS_AFTER_S: float = 10.0
+    STILL_SPREAD_MAX: float = 0.03
+
 
 @dataclass(frozen=True)
 class EngineConfig:
