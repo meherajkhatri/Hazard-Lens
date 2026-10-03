@@ -10,6 +10,13 @@ in-process against the live database, retains a labeled resolved test incident, 
 dry-run. It checks ingestion, retry handling, acknowledgement/resolution, and persistence across app restart.
 This verifies the API/database path, not delivery of a real SMS or the network listener.
 
+`python -m app.verify_realtime` starts a temporary localhost Uvicorn server and connects real
+camera/dashboard WebSocket clients. It verifies authentication, invalid messages, fall broadcast,
+retry deduplication, reconnect + REST resync, Coach retrieval, and resolution updates using configured
+storage. It retains a labeled resolved probe incident, reports one observed broadcast latency, and
+always forces dry-run SMS and the local Coach summary. This is a backend integration probe, not
+proof of the team's physical camera, frontend UI, live Gemini, or SMS delivery. It stops its server on exit.
+
 ## Run locally (Python 3.12)
 
 From `backend/`, in PowerShell:

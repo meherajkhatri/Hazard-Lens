@@ -66,7 +66,19 @@ Seed tooling is available for Dev 4's historical data.
 ## Hours 10–16 — IN PROGRESS
 
 Existing implementation: camera WebSocket endpoint, dashboard broadcast endpoint, REST resync contract,
-and backend Gemini context retrieval. These have local/mocked tests only.
+and backend Gemini context retrieval.
+
+Backend transport milestone PASSED: `python -m app.verify_realtime` starts an actual Uvicorn
+process and exercises real HTTP/WebSocket clients against Supabase. Probe ID:
+`cb3d2784-b6f3-4a45-aa7f-dc68d4d83d79`. All 11 checks passed: storage readiness, wrong-key rejection,
+invalid-payload rejection, camera-to-dashboard broadcast, acknowledgement/dry-run status,
+SMS-status broadcast, duplicate retry handling, dashboard reconnect with REST resync, new-incident
+Coach retrieval, probe resolution, and resolution broadcast. One observed event took 221.9 ms
+from simulated camera send to dashboard receive; this is not a performance guarantee.
+All 29 automated tests pass. SMS was forced to dry-run and Coach to local summary throughout.
+
+This validates the backend interfaces with simulated clients, not the physical CV camera or Dev 3 UI.
+Live Gemini and team-device end-to-end verification are still outstanding for this stage.
 
 Required verification: real CV sender connects, an event reaches the team's dashboard and database,
 and the Coach uses the new incident. Dev 1 owns the camera pipeline; Dev 3 owns dashboard/chat UI.
