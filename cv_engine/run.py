@@ -37,6 +37,24 @@ OUTCOME_NOTES = {None: "", Assessment.UNRESPONSIVE: " - NO MOVEMENT", Assessment
 UNRESPONSIVE_ALERT = "NO MOVEMENT - POSSIBLE MEDICAL EMERGENCY"
 
 
+def usable_device(requested: str) -> str:
+    """The requested device, or "cpu" with a warning if torch can't use it.
+
+    A CPU-only PyTorch install (pip's default on Windows) otherwise crashes the
+    engine at startup when DEVICE=cuda.
+    """
+    import torch
+
+    if requested.startswith("cuda") and not torch.cuda.is_available():
+        log.warning("DEVICE=%s but this PyTorch (%s) can't use a GPU; running on CPU. "
+                    "Install the CUDA build: see cv_engine/README.md", requested, torch.__version__)
+        return "cpu"
+    if requested == "mps" and not (getattr(torch.backends, "mps", None) and torch.backends.mps.is_available()):
+        log.warning("DEVICE=mps but Apple GPU isn't available; running on CPU")
+        return "cpu"
+    return requested
+
+
 def detect_public_host() -> str:
     """LAN IP other laptops can reach. No packet is sent by connecting UDP."""
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
@@ -190,7 +208,7 @@ def main(argv=None) -> None:
 
     cfg = apply_overrides(EngineConfig(), args)
     logging.basicConfig(level=logging.INFO, format=f"%(asctime)s {cfg.CAMERA_ID} %(levelname)s %(message)s")
-    device = cfg.DEVICE
+    device = usable_device(cfg.DEVICE)
 
     log.info("loading %s on %s", cfg.MODEL_PATH, device)
     estimator = PoseEstimator(cfg.MODEL_PATH, device=device)

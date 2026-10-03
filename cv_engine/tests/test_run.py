@@ -240,3 +240,15 @@ def test_recovered_label_after_getting_up():
         engine.process(FRAME, clock["t"])
     assert [b["outcome"] for _, b in emitter.assessments] == ["recovered"]
     assert engine._post_fall_notes(clock["t"])[0] == {1: "RECOVERED"}
+
+
+def test_cuda_request_falls_back_to_cpu_when_torch_has_no_gpu(monkeypatch, caplog):
+    torch = pytest.importorskip("torch")
+    from cv_engine.run import usable_device
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    assert usable_device("cuda") == "cpu"
+    assert "can't use a GPU" in caplog.text
+    assert usable_device("cpu") == "cpu"
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    assert usable_device("cuda") == "cuda"
