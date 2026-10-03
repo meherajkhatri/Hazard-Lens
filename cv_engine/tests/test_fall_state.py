@@ -1,5 +1,7 @@
 """Scenario tests for FallDetector, played back at 30 FPS on synthetic poses."""
 
+import pytest
+
 from cv_engine.config import FallThresholds
 from cv_engine.detector.fall_state import FallDetector
 from cv_engine.detector.types import FallState
@@ -159,3 +161,20 @@ def test_force_event_marks_down_and_flags_manual():
     scene.t = 10.0
     fall(get_up(scene)).hold(2.0)
     assert scene.events == []
+
+
+def test_weakest_confirmable_fall_clears_backend_min_confidence():
+    """Backend ignores pose_confidence < 0.7 (MIN_CONFIDENCE). A fall that only
+    just meets every FallThresholds minimum must still clear it."""
+    from cv_engine.detector.fall_state import pose_confidence
+    from cv_engine.detector.types import PoseFeatures
+
+    th = FallThresholds()
+    weakest = PoseFeatures(torso_angle_deg=th.DOWN_TORSO_MIN_DEG, bbox_aspect=th.DOWN_ASPECT_MIN,
+                           body_scale=300.0, hip_y=0.0, keypoint_conf=th.MIN_KEYPOINT_CONF)
+    assert pose_confidence(weakest, th.FALL_DROP_VELOCITY) > 0.7
+    assert pose_confidence(weakest, th.FALL_DROP_VELOCITY) == pytest.approx(0.736, abs=0.001)
+
+
+def test_manual_event_has_full_confidence():
+    assert FallDetector().force_event(make_pose(), now=1.0).pose_confidence == 1.0

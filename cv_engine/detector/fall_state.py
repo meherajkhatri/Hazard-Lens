@@ -24,13 +24,25 @@ class _Track:
     last_event_at: float | None = None
 
 
-def pose_confidence(features: PoseFeatures, peak_drop_velocity: float) -> float:
+# Every FallEvent has already passed the state machine, so its score starts at
+# CONFIRMED_FALL_BASE and the features only say how clean the fall was. With the
+# default FallThresholds the weakest possible confirmed fall scores ~0.736,
+# above the backend's MIN_CONFIDENCE of 0.7.
+CONFIRMED_FALL_BASE = 0.65
+MANUAL_CONFIDENCE = 1.0
+
+
+def fall_quality(features: PoseFeatures, peak_drop_velocity: float) -> float:
     signal = (
         0.4 * min(features.torso_angle_deg / 90.0, 1.0)
         + 0.3 * min(features.bbox_aspect / 1.5, 1.0)
         + 0.3 * min(peak_drop_velocity / 1.0, 1.0)
     )
     return max(0.0, min(signal * features.keypoint_conf, 1.0))
+
+
+def pose_confidence(features: PoseFeatures, peak_drop_velocity: float) -> float:
+    return CONFIRMED_FALL_BASE + (1.0 - CONFIRMED_FALL_BASE) * fall_quality(features, peak_drop_velocity)
 
 
 class FallDetector:
@@ -56,7 +68,7 @@ class FallDetector:
             track_id=person.track_id,
             timestamp=now,
             drop_started_at=now,
-            pose_confidence=pose_confidence(features, 0.0),
+            pose_confidence=MANUAL_CONFIDENCE,
             torso_angle_deg=features.torso_angle_deg,
             bbox_aspect=features.bbox_aspect,
             drop_velocity=0.0,
