@@ -5,4 +5,5 @@ ultralytics==8.3.0
 # which fails or stalls on bad venue Wi-Fi.
 lapx>=0.5.2
 requests>=2.31
+python-dotenv>=1,<2
 pytest>=8.0

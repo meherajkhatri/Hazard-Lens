@@ -6,6 +6,17 @@ them without code changes. FallThresholds are the knobs to tune at the venue.
 
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
+
+try:
+    from dotenv import load_dotenv
+except ImportError:  # optional: plain environment variables still work
+    load_dotenv = None
+
+# Secrets such as API_KEY live in cv_engine/.env (gitignored), never in code.
+ENV_FILE = Path(__file__).resolve().parent / ".env"
+if load_dotenv and ENV_FILE.exists():
+    load_dotenv(ENV_FILE)
 
 
 @dataclass(frozen=True)

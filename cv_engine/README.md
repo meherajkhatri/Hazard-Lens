@@ -9,7 +9,10 @@ Full design and the code-terms glossary are in [`docs/dev1-cv-engine-plan.md`](.
 python -m venv .venv && source .venv/bin/activate
 pip install -r cv_engine/requirements.txt
 python -m pytest -q cv_engine/tests      # camera-free tests
+cp cv_engine/.env.example cv_engine/.env  # then paste API_KEY from Dev 2's private handoff
 ```
+
+`cv_engine/.env` is gitignored. Never commit it, and never paste the key into code or chat.
 
 Download the weights **before** the venue (Ultralytics fetches `yolov8n-pose.pt`
 into the working directory on first run). With the weights present, the
@@ -26,7 +29,7 @@ python -m cv_engine.run --skeleton-only                      # privacy mode
 
 Preview window keys: `q` quit, `f` manual fall for the largest person (sent with `trigger: "manual"`).
 
-## Settings (environment variables)
+## Settings (`cv_engine/.env` or environment variables)
 
 | Variable | Default | Notes |
 |---|---|---|
