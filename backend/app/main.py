@@ -1,39 +1,180 @@
-from fastapi import FastAPI
+import asyncio
+import hmac
+import json
+import sqlite3
+from contextlib import asynccontextmanager
+from typing import Literal
+from uuid import UUID
 
-from app.schemas import IncidentAlert, SMSAlert, TelemetryEvent
+import httpx
+from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from pydantic import AwareDatetime, ValidationError
+
+from app.config import Settings
+from app.realtime import EventHub
+from app.schemas import CoachRequest, IncidentAlert, IncidentUpdate, SMSAlert, TelemetryEvent
 from app.services.alert_dispatcher import AlertDispatcher
-
-app = FastAPI(title="Call-Help Safety API", version="0.1.0")
-alert_dispatcher = AlertDispatcher()
-active_incidents: list[IncidentAlert] = []
-
-
-@app.get("/health")
-async def health_check() -> dict[str, str]:
-    return {"status": "ok"}
+from app.services.coach import SafetyCoach
+from app.services.telemetry import TelemetryService
+from app.storage import SQLiteStore, SupabaseStore
 
 
-@app.post("/api/v1/telemetry")
-async def ingest_telemetry(event: TelemetryEvent) -> dict[str, str]:
-    if event.event_type.lower() in {"fall", "ppe_violation", "collision_risk"}:
-        active_incidents.append(
-            IncidentAlert(
-                incident_id=f"{event.camera_id}-{int(event.timestamp.timestamp())}",
-                severity="high",
-                description=f"Detected {event.event_type}",
-                location=event.camera_id,
-                detected_at=event.timestamp,
-            )
-        )
+def create_app(settings=None, *, transport=None):
+    settings = settings or Settings.from_env()
+    settings.validate()
 
-    return {"status": "received"}
+    @asynccontextmanager
+    async def lifespan(app):
+        async with httpx.AsyncClient(timeout=10, transport=transport) as client:
+            store = SQLiteStore(settings.sqlite_path) if settings.storage == "sqlite" else SupabaseStore(settings, client)
+            hub = EventHub()
+            dispatcher = AlertDispatcher(settings, client)
+            app.state.store = store
+            app.state.hub = hub
+            app.state.dispatcher = dispatcher
+            app.state.telemetry = TelemetryService(settings, store, dispatcher, hub)
+            app.state.coach = SafetyCoach(settings, client, store)
+            yield
+
+    app = FastAPI(title="Call-Help Safety API", version="0.2.0", lifespan=lifespan)
+    app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins,
+        allow_methods=["GET", "POST", "PATCH"], allow_headers=["Content-Type", "X-API-Key"])
+
+    async def authenticate(x_api_key: str = Header(default="")):
+        if settings.api_key and not hmac.compare_digest(x_api_key.encode(), settings.api_key.encode()):
+            raise HTTPException(401, "Invalid API key")
+
+    async def storage_error(request, exc):
+        return JSONResponse(status_code=503, content={"detail": "Incident storage unavailable"})
+
+    app.add_exception_handler(httpx.HTTPError, storage_error)
+    app.add_exception_handler(sqlite3.Error, storage_error)
+    router = APIRouter(prefix="/api/v1", dependencies=[Depends(authenticate)])
+
+    @app.get("/health")
+    async def health():
+        return {"status": "ok", "storage": settings.storage, "sms_mode": settings.sms_mode,
+            "coach_mode": "gemini" if settings.gemini_key else "local_summary"}
+
+    @router.get("/ready")
+    async def ready():
+        await app.state.store.list(limit=1)
+        return {"status": "ready"}
+
+    @router.post("/telemetry")
+    async def ingest(event: TelemetryEvent):
+        return await app.state.telemetry.ingest(event)
+
+    @router.get("/incidents", response_model=list[IncidentAlert])
+    async def incidents(zone_id: str | None = None,
+        status: Literal["active", "acknowledged", "resolved"] | None = None,
+        since: AwareDatetime | None = None, until: AwareDatetime | None = None,
+        limit: int = Query(100, ge=1, le=500), offset: int = Query(0, ge=0)):
+        if since and until and since > until:
+            raise HTTPException(422, "since must be before until")
+        return await app.state.store.list(zone_id=zone_id, status=status, since=since, until=until, limit=limit, offset=offset)
+
+    @router.get("/incidents/{incident_id}", response_model=IncidentAlert)
+    async def incident(incident_id: UUID):
+        result = await app.state.store.get(incident_id)
+        if not result:
+            raise HTTPException(404, "Incident not found")
+        return result
+
+    @router.patch("/incidents/{incident_id}", response_model=IncidentAlert)
+    async def update_incident(incident_id: UUID, update: IncidentUpdate):
+        async with app.state.telemetry.lock:
+            current = await incident(incident_id)
+            if current.status == "resolved" and update.status != "resolved":
+                raise HTTPException(409, "Resolved incidents cannot be reopened")
+            result = await app.state.store.update(incident_id, update.model_dump())
+        await app.state.hub.publish({"type": "incident.updated", "incident": result.model_dump(mode="json")})
+        return result
+
+    @router.post("/alerts/sms")
+    async def sms(alert: SMSAlert):
+        if alert.recipient not in settings.sms_recipients:
+            raise HTTPException(403, "Recipient is not in SMS_RECIPIENTS")
+        return await app.state.dispatcher.send_sms_alert(alert)
+
+    @router.post("/coach/chat")
+    async def coach(request: CoachRequest):
+        if request.since and request.until and request.since > request.until:
+            raise HTTPException(422, "since must be before until")
+        return await app.state.coach.answer(request)
+
+    async def connect(socket):
+        origin = socket.headers.get("origin")
+        if origin and origin not in settings.cors_origins:
+            await socket.close(code=1008)
+            return False
+        await socket.accept()
+        if settings.api_key:
+            try:
+                raw = await asyncio.wait_for(socket.receive_text(), timeout=5)
+                message = json.loads(raw) if len(raw) <= 4096 else {}
+                supplied = message.get("api_key", "") if isinstance(message, dict) else ""
+                if not isinstance(supplied, str) or not hmac.compare_digest(supplied.encode(), settings.api_key.encode()):
+                    await socket.close(code=1008)
+                    return False
+            except (ValueError, TimeoutError, WebSocketDisconnect):
+                await socket.close(code=1008)
+                return False
+        return True
+
+    @app.websocket("/ws/incidents")
+    async def live_incidents(socket: WebSocket):
+        if not await connect(socket):
+            return
+        queue = app.state.hub.subscribe(socket)
+        await socket.send_json({"type": "connected"})
+        async def send_events():
+            while True:
+                await socket.send_json(await queue.get())
+        async def receive():
+            while True:
+                await socket.receive_text()
+        tasks = [asyncio.create_task(send_events()), asyncio.create_task(receive())]
+        try:
+            done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            for task in done:
+                task.result()
+        except (WebSocketDisconnect, RuntimeError):
+            pass
+        finally:
+            app.state.hub.unsubscribe(socket)
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    @app.websocket("/ws/telemetry")
+    async def live_telemetry(socket: WebSocket):
+        if not await connect(socket):
+            return
+        await socket.send_json({"type": "connected"})
+        try:
+            while True:
+                raw = await socket.receive_text()
+                if len(raw) > 65536:
+                    await socket.close(code=1009)
+                    return
+                try:
+                    event = TelemetryEvent.model_validate_json(raw)
+                    result = await app.state.telemetry.ingest(event)
+                    await socket.send_json({"type": "telemetry.result", **result})
+                except ValidationError:
+                    await socket.send_json({"type": "error", "status": 422, "detail": "Invalid telemetry; see /docs for schema"})
+                except HTTPException as exc:
+                    await socket.send_json({"type": "error", "status": exc.status_code, "detail": exc.detail})
+                except (httpx.HTTPError, sqlite3.Error):
+                    await socket.send_json({"type": "error", "status": 503, "detail": "Incident storage unavailable"})
+        except WebSocketDisconnect:
+            pass
+
+    app.include_router(router)
+    return app
 
 
-@app.get("/api/v1/incidents", response_model=list[IncidentAlert])
-async def list_incidents() -> list[IncidentAlert]:
-    return active_incidents
-
-
-@app.post("/api/v1/alerts/sms")
-async def send_sms_alert(alert: SMSAlert) -> dict[str, str]:
-    return await alert_dispatcher.send_sms_alert(alert)
+app = create_app()

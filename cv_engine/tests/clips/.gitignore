@@ -1,0 +1,3 @@
+# Recorded test clips stay local; they are too large for git.
+*
+!.gitignore
