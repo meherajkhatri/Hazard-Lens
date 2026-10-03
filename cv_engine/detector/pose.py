@@ -53,6 +53,12 @@ class PoseEstimator:
         )
         return parse_result(results[0]) if results else []
 
+    def reset_tracking(self) -> None:
+        """Forget all tracks, e.g. between two unrelated clips."""
+        predictor = getattr(self.model, "predictor", None)
+        for tracker in getattr(predictor, "trackers", None) or []:
+            tracker.reset()
+
     def warmup(self, frames: int = 10, shape: tuple[int, int] = (480, 640)) -> None:
         """Run blank frames so the first real inference isn't 2-5s slow on stage.
 
