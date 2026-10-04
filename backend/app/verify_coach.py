@@ -1,4 +1,4 @@
-"""Live Safety Coach acceptance probe using the local Ollama API. Never sends SMS."""
+"""Live Safety Coach acceptance probe using the local Ollama API."""
 from dataclasses import replace
 from datetime import datetime, timezone
 import json
@@ -14,7 +14,7 @@ def verify(settings, *, transport=None):
     if not (settings.ollama_url and settings.ollama_model):
         return {"status": "blocked", "error": "Configure OLLAMA_URL and OLLAMA_MODEL"}
 
-    settings = replace(settings, sms_mode="dry_run", sms_recipients=[])
+    settings = replace(settings, alert_provider="none")
     probe_id = str(uuid4())
     zone = "Coach Verification " + probe_id
     result = {
@@ -23,7 +23,7 @@ def verify(settings, *, transport=None):
         "checks": [],
         "answers": [],
         "storage": settings.storage,
-        "sms_mode": "dry_run",
+        "alert_provider": "none",
         "coach": "ollama",
         "model": settings.ollama_model,
     }

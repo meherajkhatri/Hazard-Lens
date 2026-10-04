@@ -1,0 +1,11 @@
+# Copy to Caddyfile and replace the hostnames.
+# Caddy obtains and renews HTTPS certificates automatically for public DNS names.
+hazard-lens.example.com {
+    reverse_proxy 127.0.0.1:3000
+}
+
+# Keep the backend and CV streams private; the frontend server-side proxy is the
+# public entry point. If direct operational access is required, protect it too.
+# api.hazard-lens.example.com {
+#     reverse_proxy 127.0.0.1:8000
+# }

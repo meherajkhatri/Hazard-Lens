@@ -1,184 +1,160 @@
 # Hazard Lens
 
-Hazard Lens is a workplace-safety monitoring prototype. It uses camera-based
-fall detection, a live incident dashboard, persistent incident storage, alerts,
-and an optional AI Safety Coach.
-
-The primary workflow is:
-
-```text
-Camera → YOLOv8 pose detection → FastAPI → Next.js dashboard
-                                  ├── SQLite or Supabase
-                                  └── Optional email/SMS alerts
-```
-
-The system is a prototype: detections can be missed or incorrect, and it does
-not replace supervision or automatically contact emergency services.
-
-## Project structure
-
-- `frontend/` — Next.js dashboard
-- `backend/` — FastAPI incident API, storage, alerts, and Safety Coach
-- `cv_engine/` — camera capture, YOLO pose tracking, fall detection, and stream
-- `cv_api/` — optional browser-webcam detection API
-- `cameras/` — camera configuration examples
+Hazard Lens is a workplace-safety monitoring prototype with camera-based fall
+detection, a live incident dashboard, persistent storage, optional email alerts,
+and an optional Ollama Safety Coach.
 
 ## Requirements
 
-- Python 3.10–3.12 (3.12 recommended)
+- Python 3.10–3.12
 - Node.js LTS and npm
-- Git
-- Webcam, USB camera, or reachable camera stream
+- A webcam, USB camera, or reachable camera stream
 
-Optional integrations include Supabase, Brevo, Twilio, and Ollama.
-
-## Quick start
-
-Clone the repository and install dependencies:
+## Install
 
 ```bash
 git clone https://github.com/meherajkhatri/Hazard-Lens.git
 cd Hazard-Lens
-
 python3.12 -m venv .venv
 source .venv/bin/activate
-python -m pip install --upgrade pip
 python -m pip install -r backend/requirements.txt -r cv_engine/requirements.txt
-
 cp backend/.env.example backend/.env
 cp cv_engine/.env.example cv_engine/.env
 cp frontend/.env.example frontend/.env.local
-
-cd frontend
-npm ci
-cd ..
+cd frontend && npm ci && cd ..
 ```
 
-Configure the copied environment files before starting the services:
+For a local run, use `STORAGE_BACKEND=sqlite` and `ALERT_PROVIDER=none` in
+`backend/.env`. Use the same `API_KEY` in the backend, CV engine, and frontend.
 
-- Use the same `API_KEY` in `backend/.env`, `cv_engine/.env`, and
-  `frontend/.env.local`.
-- For a local demo, set `STORAGE_BACKEND=sqlite`,
-  `ALERT_PROVIDER=twilio`, and `SMS_MODE=dry_run` in `backend/.env`.
-- Set `BACKEND_URL` and camera stream values in the camera and frontend files.
-- Keep secrets in server-side `.env` files; never put them in `NEXT_PUBLIC_*`
-  variables.
+## Run in three terminals
 
-## Run the application
+Replace `/path/to/Hazard-Lens` with the repository path. Start the terminals in
+this order and leave each one running.
 
-Run the backend, camera engine, and frontend in three separate terminals.
-Complete the terminals in order.
+### Terminal 1: Backend
 
-### Terminal 1: Start the backend
+```bash
+cd /path/to/Hazard-Lens
+source .venv/bin/activate
+cd backend
+python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
 
-1. Open a new terminal.
-2. Go to the repository root and activate the virtual environment:
+Check `http://127.0.0.1:8000/health`.
 
-   ```bash
-   cd /path/to/Hazard-Lens
-   source .venv/bin/activate
-   ```
+### Terminal 2: CV engine (camera 1)
 
-3. Start the FastAPI backend:
+```bash
+cd /path/to/Hazard-Lens
+source .venv/bin/activate
+python -m cv_engine.preflight --allow-local
+python -m cv_engine.run --camera-id zone-1-cam-1 --camera-index 0 --port 8001
+```
 
-   ```bash
-   cd backend
-   python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
-   ```
+Allow camera access when prompted. The stream is available at
+`http://127.0.0.1:8001/stream`.
 
-4. Leave this terminal running. The backend is available at
-   `http://127.0.0.1:8000`. Its health check is
-   `http://127.0.0.1:8000/health`.
+### Additional cameras
 
-### Terminal 2: Start the CV engine
+Run one CV process for each connected camera. Use a different camera index,
+camera ID, and stream port for every process:
 
-1. Open a second terminal.
-2. Go to the repository root and activate the virtual environment:
+```bash
+# Terminal 4: camera 2
+cd /path/to/Hazard-Lens
+source .venv/bin/activate
+python -m cv_engine.run --camera-id zone-1-cam-2 --zone-id "Zone 1" --camera-index 1 --port 8002
+```
 
-   ```bash
-   cd /path/to/Hazard-Lens
-   source .venv/bin/activate
-   ```
+List locally available camera indexes before starting the processes:
 
-3. Run the local configuration check:
+```bash
+python -m cv_engine.run --list-cameras
+```
 
-   ```bash
-   python -m cv_engine.preflight --allow-local
-   ```
+For network cameras, replace `--camera-index N` with
+`--camera-url http://camera-address/stream`. Each process recognizes people
+and falls independently and sends incidents with its own `camera_id`.
+To run several workers under one supervisor, create private files from
+`cameras/camera-1.env.example` and `cameras/camera-2.env.example`, then run:
 
-4. If preflight reports `READY`, start the camera engine:
+```bash
+python tools/run_cameras.py --env-file cameras/camera-1.env --env-file cameras/camera-2.env
+```
 
-   ```bash
-   python -m cv_engine.run
-   ```
+### Terminal 3: Frontend
 
-5. Allow camera access when prompted and leave this terminal running. The
-   annotated stream is available at `http://127.0.0.1:8001/stream`.
+```bash
+cd /path/to/Hazard-Lens/frontend
+npm run dev
+```
 
-### Terminal 3: Start the frontend
+Open `http://localhost:3000`. Stop services with `Control + C` in each terminal.
 
-1. Open a third terminal.
-2. Go to the frontend directory:
+## Configuration
 
-   ```bash
-   cd /path/to/Hazard-Lens/frontend
-   ```
+- `frontend/.env.local` should use `BACKEND_URL=http://127.0.0.1:8000` and map
+  every annotated CV output in `NEXT_PUBLIC_CAMERA_STREAMS`, for example:
 
-3. Start the Next.js development server:
+  ```dotenv
+  NEXT_PUBLIC_CAMERA_STREAMS={"zone-1-cam-1":"http://127.0.0.1:8001/stream","zone-1-cam-2":"http://127.0.0.1:8002/stream"}
+  NEXT_PUBLIC_CAMERA_ZONES={"zone-1-cam-1":"Zone 1","zone-1-cam-2":"Zone 1"}
+  ```
 
-   ```bash
-   npm run dev
-   ```
+  The dashboard's **Camera** selector can show one feed or all configured
+  feeds at the same time. Use the CV output URLs, not raw camera URLs.
+  `frontend/.env.local` takes precedence over `frontend/.env`; when the
+  browser is on another device, use the CV host's LAN address instead of
+  `127.0.0.1` for every camera stream.
+- For Brevo email, set `ALERT_PROVIDER=brevo_email` and fill its variables in
+  `backend/.env`.
+- Automatic email alerts are sent only when model confidence is strictly above
+  90%. Configure this with `ALERT_MIN_CONFIDENCE=0.9`. Incidents below that
+  threshold are still stored in the dashboard but do not trigger email.
+- Existing SQLite records are migrated automatically from the old SMS fields.
+- For existing Supabase data, run `backend/supabase/migrate_alerts.sql` once.
+- Keep credentials out of `NEXT_PUBLIC_*` variables and do not expose this
+  unauthenticated prototype directly to the public internet.
+- The API uses a shared server-side API key. Put Caddy or Nginx in front of the
+  frontend for HTTPS; `deploy/Caddyfile.example` provides a starting point.
+  Keep backend and CV ports private.
+- Back up SQLite data and incident snapshots with `tools/backup_data.sh`.
+  Each backup now includes `MANIFEST.sha256`; the command fails instead of
+  silently creating an empty backup, so verify the manifest before deleting
+  older copies.
+  On macOS, copy `deploy/com.hazardlens.backup.plist.example`, replace
+  `REPLACE_ME`, and load it with `launchctl bootstrap gui/$UID`.
+- GitHub Actions runs backend, CV engine, and frontend checks on every push and
+  pull request. Copy the Caddy template in `deploy/` for HTTPS deployment.
 
-4. Open `http://localhost:3000` in a browser.
+## CV accuracy measurement
 
-Keep all three terminals running while using the application. Press
-`Control + C` in each terminal to stop its service. Replace
-`/path/to/Hazard-Lens` with the actual path to your clone.
+Place labeled clips in one directory. Names beginning with `fall` are positive
+examples; names such as `adl`, `sit`, or `nonfall` are negative examples:
+
+```bash
+cd cv_engine
+../.venv/bin/python -m cv_engine.eval_clips /path/to/labeled-clips --sweep
+```
+
+The report includes falls caught, missed falls, false alarms, and the threshold
+settings tested. Keep the labeled footage private; use `--export` to save only
+pose skeletons for repeatable evaluation.
 
 ## Optional Safety Coach
-
-The Safety Coach uses Ollama. Start Ollama and download the model configured in
-`backend/.env`:
 
 ```bash
 ollama pull qwen2.5-coder:7b
 ollama serve
 ```
 
-## Useful commands
-
-Seed sample incidents:
+## Checks
 
 ```bash
-cd backend
-python -m app.seed
+cd backend && PYTHONPATH=. ../.venv/bin/python -m pytest -q
+cd ../cv_engine && PYTHONPATH=. ../.venv/bin/python -m pytest -q
+cd ../frontend && npm run lint && npm run build
 ```
-
-List available cameras:
-
-```bash
-python -m cv_engine.run --list-cameras
-```
-
-Run checks:
-
-```bash
-python -m pytest -q backend
-python -m pytest -q cv_engine/tests
-cd frontend && npm run lint && npm run build
-```
-
-## Notes
-
-- Run the backend from `backend/` and the camera engine from the repository
-  root so Python imports resolve correctly.
-- Restart a service after changing its `.env` file.
-- Do not expose this unauthenticated local/LAN prototype directly to the public
-  internet.
-- For Supabase storage or real email/SMS alerts, follow the example variables
-  in `backend/.env.example` and configure the provider credentials securely.
-
-## License
 
 See [LICENSE](LICENSE).

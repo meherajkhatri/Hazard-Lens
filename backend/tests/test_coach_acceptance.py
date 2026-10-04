@@ -22,7 +22,7 @@ def test_coach_verifier_grounds_answers_and_disables_sms(tmp_path):
         api_key="test",
         ollama_url="http://127.0.0.1:11434",
         ollama_model="qwen2.5:3b",
-        sms_mode="twilio",
+        alert_provider="none",
     )
 
     def provider(request):
@@ -89,10 +89,8 @@ def test_coach_falls_back_if_ollama_is_unavailable(tmp_path):
     ) as client:
         response = client.post("/api/v1/coach/chat", json={"question": "Summarize"})
 
-    assert response.status_code == 200
-    data = response.json()
-    assert data["mode"] == "local_summary"
-    assert "Ollama unavailable" in data["answer"]
+    assert response.status_code == 503
+    assert "Ollama is not reachable" in response.json()["detail"]
 
 
 def test_empty_ollama_answer_falls_back(tmp_path):
@@ -114,5 +112,5 @@ def test_empty_ollama_answer_falls_back(tmp_path):
     ) as client:
         response = client.post("/api/v1/coach/chat", json={"question": "Summarize"})
 
-    assert response.status_code == 200
-    assert response.json()["mode"] == "local_summary"
+    assert response.status_code == 502
+    assert "invalid or empty" in response.json()["detail"]

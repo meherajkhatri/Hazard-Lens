@@ -32,13 +32,13 @@ test('CV telemetry → live dashboard → persisted actions → scoped Coach', {
   }
   const backendEnv = {
     API_KEY: key, STORAGE_BACKEND: 'sqlite', SQLITE_PATH: resolve(temp, 'test.sqlite3'),
-    PYTHON_DOTENV_DISABLED: '1', ALERT_PROVIDER: 'twilio', SMS_MODE: 'dry_run', SMS_RECIPIENTS: '+15555550123', GEMINI_API_KEY: '',
+    PYTHON_DOTENV_DISABLED: '1', ALERT_PROVIDER: 'none', GEMINI_API_KEY: '',
     GEMINI_MODEL: '', ALERT_COOLDOWN_SECONDS: '0',
   };
   let reader;
   const abort = new AbortController();
   try {
-    launch(process.env.CALL_HELP_TEST_PYTHON || resolve(root, '.venv/bin/python'),
+    launch(process.env.HAZARD_LENS_TEST_PYTHON || resolve(root, '.venv/bin/python'),
       ['-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', '18080'], resolve(root, 'backend'), backendEnv);
     launch(process.execPath, ['node_modules/next/dist/bin/next', 'start', '--hostname', '127.0.0.1', '--port', '13000'],
       resolve(root, 'frontend'), { BACKEND_URL: api, API_KEY: key });
@@ -82,11 +82,11 @@ test('CV telemetry → live dashboard → persisted actions → scoped Coach', {
     };
     const ingested = await (await backendRequest('/api/v1/telemetry', payload)).json();
     assert.equal(ingested.status, 'received');
-    assert.equal(ingested.incident.sms_status, 'dry_run');
+    assert.equal(ingested.incident.alert_status, 'not_configured');
     const created = await nextEvent();
     assert.equal(created.type, 'incident.created');
     assert.equal(created.incident.incident_id, payload.event_id);
-    assert.equal((await nextEvent()).incident.sms_status, 'dry_run');
+    assert.equal((await nextEvent()).incident.alert_status, 'not_configured');
     assert.equal((await (await backendRequest('/api/v1/telemetry', payload)).json()).status, 'duplicate');
     const rows = await (await browserRequest('incidents')).json();
     assert.equal(rows.length, 1);
