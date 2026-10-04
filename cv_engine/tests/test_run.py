@@ -124,12 +124,20 @@ def test_main_end_to_end_on_generated_clip(tmp_path, monkeypatch, caplog):
         port = s.getsockname()[1]
     server, thread = _start_backend(port, tmp_path)
     monkeypatch.setattr(run, "EngineConfig", lambda: EngineConfig(
-        BACKEND_URL=f"http://127.0.0.1:{port}", STREAM_PORT=0, MODEL_PATH=str(WEIGHTS), PUBLIC_HOST="127.0.0.1"))
+        BACKEND_URL=f"http://127.0.0.1:{port}", STREAM_PORT=0, MODEL_PATH=str(WEIGHTS), PUBLIC_HOST="127.0.0.1",
+        LOG_DIR=str(tmp_path / "logs")))
     try:
         run.main(["--video", str(clip), "--no-window", "--skeleton-only"])
         # Empty clip: heartbeats delivered, no incidents raised.
         assert requests.get(f"http://127.0.0.1:{port}/api/v1/incidents", timeout=2).json() == []
-        assert "rejected" not in caplog.text.lower()
+        # Logs for the Coach and reports: console log file + session events, handler cleaned up.
+        from cv_engine.eventlog import read_events
+        logs = tmp_path / "logs"
+        assert "loading" in (logs / "zone-1-cam-1.log").read_text()
+        kinds = [e["event"] for e in read_events(logs)]
+        assert kinds[0] == "session_start" and kinds[-1] == "session_stop"
+        assert not any(getattr(h, "baseFilename", "").startswith(str(logs)) for h in run.log.handlers)
+        assert "backend rejected" not in caplog.text and "did NOT record" not in caplog.text
     finally:
         server.should_exit = True
         thread.join(5)
@@ -171,7 +179,8 @@ def test_two_cameras_run_side_by_side_against_one_backend(tmp_path, monkeypatch)
         port = s.getsockname()[1]
     server, thread = _start_backend(port, tmp_path)
     monkeypatch.setattr(run, "EngineConfig", lambda: EngineConfig(
-        BACKEND_URL=f"http://127.0.0.1:{port}", MODEL_PATH=str(WEIGHTS), PUBLIC_HOST="127.0.0.1"))
+        BACKEND_URL=f"http://127.0.0.1:{port}", MODEL_PATH=str(WEIGHTS), PUBLIC_HOST="127.0.0.1",
+        LOG_DIR=str(tmp_path / "logs")))
     errors = []
 
     def camera(cam_id: str):

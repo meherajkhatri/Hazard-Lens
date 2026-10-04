@@ -19,12 +19,14 @@ import dataclasses
 import logging
 import socket
 import time
+from pathlib import Path
 
 import cv2
 import numpy as np
 
 from cv_engine.camera import LiveCamera, list_cameras, open_camera, open_stream
 from cv_engine.config import EngineConfig
+from cv_engine.eventlog import DEFAULT_LOG_DIR, EventLog, add_file_logging
 from cv_engine.detector.fall_state import FallDetector
 from cv_engine.detector.types import Assessment, FallEvent, PersonPose
 from cv_engine.overlay import draw_frame
@@ -93,8 +95,9 @@ class Engine:
     """One frame in -> people detected, falls emitted, annotated frame out."""
 
     def __init__(self, cfg: EngineConfig, estimator, detector: FallDetector, emitter, streamer=None,
-                 skeleton_only: bool = False, snapshot_base_url: str | None = None) -> None:
+                 skeleton_only: bool = False, snapshot_base_url: str | None = None, event_log=None) -> None:
         self.cfg = cfg
+        self.event_log = event_log
         self.estimator = estimator
         self.detector = detector
         self.emitter = emitter
@@ -111,13 +114,17 @@ class Engine:
     def process(self, frame: np.ndarray, now: float, force_fall: bool = False) -> tuple[np.ndarray, list[FallEvent]]:
         """`now` is the frame's time: wall clock for a webcam, video time for a clip."""
         started = time.perf_counter()
-        was_impaired = self.vision.status.impaired
+        was_impaired, was_reason = self.vision.status.impaired, self.vision.status.reason
         vision = self.vision.update(frame, now)
-        if vision.impaired != was_impaired:
+        if (vision.impaired, vision.reason) != (was_impaired, was_reason):
             if vision.impaired:
                 log.warning("%s on %s: falls may be missed", vision.label, self.cfg.CAMERA_ID)
             else:
                 log.info("vision restored on %s", self.cfg.CAMERA_ID)
+            q = vision.quality
+            self._record("vision", now, status="impaired" if vision.impaired else "ok", reason=vision.reason,
+                         brightness=round(q.brightness, 1), glare_fraction=round(q.glare_fraction, 3),
+                         contrast=round(q.contrast, 1))
         self.people = self.estimator(frame)
         events = self.detector.update(self.people, now)
         if force_fall and (target := largest_person(self.people)):
@@ -135,6 +142,10 @@ class Engine:
                         assessment.outcome.value, assessment.seconds_down, assessment.motion)
             if assessment.outcome is Assessment.RECOVERED:
                 self._recovered_until[assessment.fall.track_id] = now + RECOVERED_LABEL_S
+            self._record("post_fall", assessment.timestamp, event_id=incident_id,
+                         track_id=assessment.fall.track_id, outcome=assessment.outcome.value,
+                         seconds_down=round(assessment.seconds_down, 1), motion=round(assessment.motion, 3),
+                         detection=assessment.fall.detection)
             self.emitter.send_assessment(incident_id, assessment_payload(assessment, self.cfg.CAMERA_ID, self.cfg.ZONE_ID))
 
         states = {p.track_id: self.detector.state_of(p.track_id) for p in self.people}
@@ -152,6 +163,13 @@ class Engine:
             self.emitter.send(fall_payload(event, self.cfg.CAMERA_ID, self.cfg.ZONE_ID, sent_at, self.snapshot_base_url))
             log.warning("FALL track=%s conf=%.2f trigger=%s detection=%s", event.track_id, event.pose_confidence,
                         "manual" if event.manual else "auto", event.detection)
+            self._record("fall", event.timestamp, event_id=event_id(self.cfg.CAMERA_ID, event),
+                         track_id=event.track_id, detection=event.detection,
+                         trigger="manual" if event.manual else "auto",
+                         pose_confidence=round(event.pose_confidence, 3),
+                         torso_angle_deg=round(event.torso_angle_deg, 1), bbox_aspect=round(event.bbox_aspect, 2),
+                         drop_velocity=round(event.drop_velocity, 2), keypoint_conf=round(event.keypoint_conf, 2),
+                         latency_ms=int(round((sent_at - event.drop_started_at) * 1000)))
 
         if now - self._last_heartbeat_at >= self.cfg.HEARTBEAT_INTERVAL_S:
             self._last_heartbeat_at = now
@@ -163,6 +181,13 @@ class Engine:
                                     "vision": vision.reason or "ok"}
             self.streamer.update_frame(annotated)
         return annotated, events
+
+    def _record(self, event: str, ts: float, **fields) -> None:
+        if self.event_log is not None:
+            try:
+                self.event_log.write(event, ts, **fields)
+            except OSError as exc:  # a full disk must never stop detection
+                log.error("could not write event log: %s", exc)
 
     def _post_fall_notes(self, now: float) -> tuple[dict[int, str], bool]:
         """Per-person labels like "DOWN 7s - NO MOVEMENT", and whether anyone is unresponsive."""
@@ -225,7 +250,15 @@ def main(argv=None) -> None:
         return
 
     cfg = apply_overrides(EngineConfig(), args)
-    logging.basicConfig(level=logging.INFO, format=f"%(asctime)s {cfg.CAMERA_ID} %(levelname)s %(message)s")
+    log_format = f"%(asctime)s {cfg.CAMERA_ID} %(levelname)s %(message)s"
+    logging.basicConfig(level=logging.INFO, format=log_format)
+    # Don't depend on the global logging setup: if anything configured it first,
+    # INFO lines (and the log file) would silently be empty.
+    log.setLevel(logging.INFO)
+    log_dir = Path(cfg.LOG_DIR) if cfg.LOG_DIR else DEFAULT_LOG_DIR
+    file_handler = add_file_logging(log, log_dir, cfg.CAMERA_ID, log_format)
+    event_log = EventLog(log_dir, cfg.CAMERA_ID, cfg.ZONE_ID)
+    log.info("logging to %s and %s", file_handler.baseFilename, event_log.path_for(time.time()).name)
     device = usable_device(cfg.DEVICE)
 
     log.info("loading %s on %s", cfg.MODEL_PATH, device)
@@ -237,7 +270,11 @@ def main(argv=None) -> None:
     snapshot_base_url = f"http://{host}:{streamer.port}"
     emitter = TelemetryEmitter(cfg.BACKEND_URL, cfg.API_KEY)
     engine = Engine(cfg, estimator, FallDetector(cfg.thresholds), emitter, streamer,
-                    skeleton_only=args.skeleton_only, snapshot_base_url=snapshot_base_url)
+                    skeleton_only=args.skeleton_only, snapshot_base_url=snapshot_base_url, event_log=event_log)
+    th = cfg.thresholds
+    event_log.write("session_start", time.time(), device=device, model=Path(cfg.MODEL_PATH).name,
+                    source=args.video or cfg.CAMERA_URL or f"camera index {cfg.CAMERA_INDEX}",
+                    thresholds={k: getattr(th, k) for k in vars(th)})
     log.info("stream: %s/stream   backend: %s", snapshot_base_url, cfg.BACKEND_URL)
 
     if args.video:
@@ -256,6 +293,7 @@ def main(argv=None) -> None:
     clock_start, frame_index = time.time(), 0
     force_fall = False
     window_title = f"Call-Help {cfg.CAMERA_ID} ({cfg.ZONE_ID})"
+    camera_was_connected = False
     window_shown = False
 
     try:
@@ -275,12 +313,18 @@ def main(argv=None) -> None:
                 frame = camera.read()
                 if frame is None:
                     streamer.status = {**streamer.status, "camera": "reconnecting"}
+                    if camera_was_connected:
+                        camera_was_connected = False
+                        event_log.write("camera", time.time(), status="lost")
                     if not args.no_window and window_shown and (
                             cv2.waitKey(50) & 0xFF in QUIT_KEYS or window_closed(window_title)):
                         break
                     time.sleep(0.05)
                     continue
                 now = time.time()
+                if not camera_was_connected:
+                    camera_was_connected = True
+                    event_log.write("camera", now, status="connected")
 
             annotated, _ = engine.process(frame, now, force_fall=force_fall)
             force_fall = False
@@ -302,8 +346,13 @@ def main(argv=None) -> None:
         if camera is not None:
             camera.release()
         cv2.destroyAllWindows()
+        event_log.write("session_stop", time.time(), frames=frame_index if args.video else None,
+                        delivered=emitter.delivered, undelivered_falls=emitter.pending_falls,
+                        rejected_falls=emitter.rejected)
         emitter.close()
         streamer.stop()
+        log.removeHandler(file_handler)
+        file_handler.close()
         log.info("stopped; %d telemetry messages delivered, %d falls undelivered, %d falls rejected by backend",
                  emitter.delivered, emitter.pending_falls, emitter.rejected)
 

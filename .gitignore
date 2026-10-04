@@ -235,3 +235,6 @@ frontend/.next/
 frontend/*.tsbuildinfo
 !frontend/src/lib/
 !frontend/src/lib/**
+
+# Camera engine logs (events for the AI Coach and reports; never committed)
+cv_engine/logs/

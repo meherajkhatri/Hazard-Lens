@@ -94,4 +94,6 @@ class EngineConfig:
     # Host other laptops use to reach this one, for snapshot_url. Auto-detected if empty.
     PUBLIC_HOST: str = os.getenv("PUBLIC_HOST", "")
     HEARTBEAT_INTERVAL_S: float = 5.0
+    # Where per-camera log files and daily event logs go; empty = cv_engine/logs.
+    LOG_DIR: str = os.getenv("LOG_DIR", "")
     thresholds: FallThresholds = field(default_factory=FallThresholds)
