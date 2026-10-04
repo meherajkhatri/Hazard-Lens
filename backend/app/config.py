@@ -17,7 +17,7 @@ class Settings:
     brevo_smtp_login: str = ""
     brevo_smtp_key: str = ""
     brevo_from_email: str = ""
-    brevo_from_name: str = "CALL_HELP"
+    brevo_from_name: str = "Hazard Lens"
     brevo_recipients: list[str] = field(default_factory=list)
     ollama_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "qwen2.5-coder:7b"
@@ -41,7 +41,7 @@ class Settings:
             brevo_smtp_login=os.getenv("BREVO_SMTP_LOGIN", ""),
             brevo_smtp_key=os.getenv("BREVO_SMTP_KEY", ""),
             brevo_from_email=os.getenv("BREVO_FROM_EMAIL", ""),
-            brevo_from_name=os.getenv("BREVO_FROM_NAME", "CALL_HELP"),
+            brevo_from_name=os.getenv("BREVO_FROM_NAME", "Hazard Lens"),
             brevo_recipients=csv("BREVO_RECIPIENTS"),
             ollama_url=os.getenv("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/"),
             ollama_model=os.getenv("OLLAMA_MODEL", "qwen2.5-coder:7b"),

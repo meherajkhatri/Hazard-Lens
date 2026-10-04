@@ -259,15 +259,15 @@ def test_window_closed_detects_closed_or_missing_window(monkeypatch):
     from cv_engine import run
 
     monkeypatch.setattr(run.cv2, "getWindowProperty", lambda title, prop: 0.0)
-    assert run.window_closed("Call-Help cam")
+    assert run.window_closed("Hazard Lens cam")
     monkeypatch.setattr(run.cv2, "getWindowProperty", lambda title, prop: 1.0)
-    assert not run.window_closed("Call-Help cam")
+    assert not run.window_closed("Hazard Lens cam")
 
     def missing(title, prop):
         raise run.cv2.error("NULL window")
 
     monkeypatch.setattr(run.cv2, "getWindowProperty", missing)
-    assert run.window_closed("Call-Help cam")
+    assert run.window_closed("Hazard Lens cam")
 
 
 def test_on_floor_label_shows_while_counting_toward_found_down():

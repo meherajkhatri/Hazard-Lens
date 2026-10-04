@@ -41,7 +41,7 @@ class AlertDispatcher:
     async def send_email_alert(self, alert: EmailAlert) -> dict[str, str]:
         return await asyncio.to_thread(self._send_email, alert)
 
-    async def _send_all(self, message, subject="CALL_HELP safety alert"):
+    async def _send_all(self, message, subject="Hazard Lens safety alert"):
         if self.settings.alert_provider == "brevo_email":
             results = []
             for recipient in self.settings.brevo_recipients:
@@ -53,18 +53,18 @@ class AlertDispatcher:
 
     async def dispatch(self, incident):
         return await self._send_all(
-            f"CALL_HELP: possible {incident.event_type} in {incident.zone_id}, camera {incident.camera_id}, at {incident.detected_at.isoformat()}. Incident {incident.incident_id}. Check the dashboard.",
-            subject=f"CALL_HELP: possible {incident.event_type} in {incident.zone_id}")
+            f"Hazard Lens: possible {incident.event_type} in {incident.zone_id}, camera {incident.camera_id}, at {incident.detected_at.isoformat()}. Incident {incident.incident_id}. Check the dashboard.",
+            subject=f"Hazard Lens: possible {incident.event_type} in {incident.zone_id}")
 
     async def escalate(self, incident, assessment):
         """Follow-up for a fall the camera kept watching. Not subject to the cooldown:
         an unresponsive worker must never be silenced by an earlier alert."""
         if assessment.outcome == "unresponsive":
-            message = (f"CALL_HELP URGENT: worker down {assessment.seconds_down:.0f}s with NO MOVEMENT in "
+            message = (f"Hazard Lens URGENT: worker down {assessment.seconds_down:.0f}s with NO MOVEMENT in "
                        f"{incident.zone_id} (camera {assessment.camera_id}). Possible medical emergency. "
                        f"Incident {incident.incident_id}.")
         else:
-            message = (f"CALL_HELP update: worker in {incident.zone_id} got back up after "
+            message = (            f"Hazard Lens update: worker in {incident.zone_id} got back up after "
                        f"{assessment.seconds_down:.0f}s. Incident {incident.incident_id} still needs a check.")
-        subject = "CALL_HELP URGENT: worker unresponsive" if assessment.outcome == "unresponsive" else "CALL_HELP update: worker recovered"
+        subject = "Hazard Lens URGENT: worker unresponsive" if assessment.outcome == "unresponsive" else "Hazard Lens update: worker recovered"
         return await self._send_all(message, subject=subject)

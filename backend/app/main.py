@@ -39,7 +39,7 @@ def create_app(settings=None, *, transport=None, smtp_factory=None):
             app.state.coach = SafetyCoach(settings, client, store)
             yield
 
-    app = FastAPI(title="Call-Help Safety API", version="0.2.0", lifespan=lifespan)
+    app = FastAPI(title="Hazard Lens Safety API", version="0.2.0", lifespan=lifespan)
     app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins,
         allow_methods=["GET", "POST", "PATCH"], allow_headers=["Content-Type", "X-API-Key"])
 

@@ -1,4 +1,4 @@
-"""Call-Help CV engine entrypoint.
+"""Hazard Lens CV engine entrypoint.
 
     python -m cv_engine.run                      # webcam (CAMERA_INDEX)
     python -m cv_engine.run --video clip.mp4     # replay a recorded clip
@@ -182,7 +182,7 @@ class Engine:
 
 
 def parse_args(argv=None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Call-Help CV engine")
+    parser = argparse.ArgumentParser(description="Hazard Lens CV engine")
     parser.add_argument("--video", help="replay a recorded clip instead of the webcam")
     parser.add_argument("--loop", action="store_true", help="restart the clip when it ends")
     parser.add_argument("--skeleton-only", action="store_true", help="privacy mode: never show or stream camera pixels")
@@ -266,7 +266,7 @@ def main(argv=None) -> None:
             log.warning("could not open %s yet; will keep retrying", source)
     clock_start, frame_index = time.time(), 0
     force_fall = False
-    window_title = f"Call-Help {cfg.CAMERA_ID} ({cfg.ZONE_ID})"
+    window_title = f"Hazard Lens {cfg.CAMERA_ID} ({cfg.ZONE_ID})"
     window_shown = False
 
     try:

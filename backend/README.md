@@ -1,4 +1,4 @@
-# CALL_HELP backend
+# Hazard Lens backend
 
 FastAPI provides incident ingestion, persistence, live dashboard events, fall SMS alerts,
 and a Gemini Safety Coach. Camera inference and video streaming belong to the CV module;

@@ -1,4 +1,4 @@
-# Call-Help dashboard
+# Hazard Lens dashboard
 
 The Next.js dashboard connects to the FastAPI backend for persistent incidents,
 real-time updates, acknowledgment/resolution, automatic SMS status, and Safety
@@ -93,7 +93,7 @@ npm run test:integration
 The integration test starts isolated backend/frontend processes with a temporary
 SQLite database, test API key, dry-run SMS, and local Coach. It requires the root
 `.venv` above and a completed frontend production build. It never contacts Twilio,
-Gemini, or Supabase. Set `CALL_HELP_TEST_PYTHON` to use another Python environment.
+Gemini, or Supabase. Set `HAZARD_LENS_TEST_PYTHON` to use another Python environment.
 
 ## Data flow
 

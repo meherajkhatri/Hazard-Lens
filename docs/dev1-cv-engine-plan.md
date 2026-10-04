@@ -1,4 +1,4 @@
-# Dev 1 — CV Engine Plan (Call-Help, Hack Dearborn 5)
+# Dev 1 — CV Engine Plan (Hazard Lens, Hack Dearborn 5)
 
 **Owner:** Dev 1 (CV/AI Engineer)
 **Branch:** `lakshyabranch`

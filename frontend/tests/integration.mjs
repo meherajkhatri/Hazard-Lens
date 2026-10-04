@@ -38,7 +38,7 @@ test('CV telemetry → live dashboard → persisted actions → scoped Coach', {
   let reader;
   const abort = new AbortController();
   try {
-    launch(process.env.CALL_HELP_TEST_PYTHON || resolve(root, '.venv/bin/python'),
+    launch(process.env.HAZARD_LENS_TEST_PYTHON || resolve(root, '.venv/bin/python'),
       ['-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', '18080'], resolve(root, 'backend'), backendEnv);
     launch(process.execPath, ['node_modules/next/dist/bin/next', 'start', '--hostname', '127.0.0.1', '--port', '13000'],
       resolve(root, 'frontend'), { BACKEND_URL: api, API_KEY: key });

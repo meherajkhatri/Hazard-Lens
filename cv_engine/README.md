@@ -1,4 +1,4 @@
-# Call-Help CV Engine (Dev 1)
+# Hazard Lens CV Engine (Dev 1)
 
 Webcam → YOLOv8-pose → fall detection → backend telemetry + live MJPEG stream.
 Full design and the code-terms glossary are in [`docs/dev1-cv-engine-plan.md`](../docs/dev1-cv-engine-plan.md).
