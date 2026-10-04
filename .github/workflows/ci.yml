@@ -7,6 +7,10 @@ on:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    env:
+      # Tests use local storage and mocked providers, without deployment secrets.
+      STORAGE_BACKEND: sqlite
+      ALERT_PROVIDER: none
     defaults:
       run:
         working-directory: backend
