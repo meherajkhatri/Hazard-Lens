@@ -82,3 +82,37 @@ def test_parse_result_zeroes_confidence_of_keypoints_moved_to_origin():
     person = parse_result(result)[0]
     assert person.keypoints[6, 2] == 0.0
     assert person.keypoints[5, 2] == data[0, 5, 2]
+
+
+def test_tracker_config_keeps_low_score_people():
+    import yaml
+
+    from cv_engine.detector.pose import DETECTION_CONF, TRACKER_CONFIG
+
+    cfg = yaml.safe_load(TRACKER_CONFIG.read_text())
+    assert cfg["tracker_type"] == "bytetrack"
+    assert cfg["new_track_thresh"] <= 0.3 and cfg["track_high_thresh"] <= 0.3
+    assert cfg["track_buffer"] >= 60
+    assert DETECTION_CONF < 0.25
+
+
+def test_real_model_tracks_people_lying_down():
+    """People rotated to lying score ~0.4; Ultralytics' default tracker dropped all of them."""
+    ultralytics = pytest.importorskip("ultralytics")
+    weights = Path(os.getenv("MODEL_PATH", "yolov8n-pose.pt"))
+    if not weights.exists():
+        pytest.skip("yolov8n-pose.pt not downloaded")
+    import cv2
+
+    from cv_engine.detector.pose import PoseEstimator
+
+    image = cv2.imread(str(Path(ultralytics.__file__).parent / "assets" / "bus.jpg"))
+    lying = cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
+    estimator = PoseEstimator(str(weights))
+    for _ in range(5):
+        people = estimator(lying)
+    assert len(people) >= 1
+    estimator.reset_tracking()
+    for _ in range(5):
+        standing = estimator(image)
+    assert len(standing) == 4  # all four, including the low-score one (0.41) the default dropped

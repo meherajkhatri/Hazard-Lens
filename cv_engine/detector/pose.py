@@ -1,8 +1,16 @@
 """PoseEstimator: YOLOv8-pose + ByteTrack -> list[PersonPose] per frame."""
 
+from pathlib import Path
+
 import numpy as np
 
 from cv_engine.detector.types import PersonPose
+
+
+# Tuned for people lying down or partly hidden, who score lower than people standing.
+TRACKER_CONFIG = Path(__file__).with_name("bytetrack.yaml")
+# Ultralytics default is 0.25; lying people often score 0.15-0.45.
+DETECTION_CONF = 0.15
 
 
 def parse_result(result) -> list[PersonPose]:
@@ -45,7 +53,8 @@ class PoseEstimator:
         results = self.model.track(
             frame,
             persist=True,
-            tracker="bytetrack.yaml",
+            tracker=str(TRACKER_CONFIG),
+            conf=DETECTION_CONF,
             classes=[0],
             device=self.device,
             imgsz=self.imgsz,
