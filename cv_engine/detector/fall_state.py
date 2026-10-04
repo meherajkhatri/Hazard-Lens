@@ -178,11 +178,19 @@ class FallDetector:
         collapse = 1.0 - height / track.standing_height if track.standing_height else 0.0
 
         if track.state is FallState.UPRIGHT:
-            if velocity >= th.FALL_DROP_VELOCITY:
+            # At low browser sampling rates (2-5 FPS), the actual downward velocity
+            # spike can occur entirely between two inference frames. Do not require
+            # that spike if the person is already clearly horizontal/collapsed.
+            horizontal_now = (
+                features.torso_angle_deg >= th.DOWN_TORSO_MIN_DEG
+                and features.bbox_aspect >= th.DOWN_ASPECT_MIN
+            )
+            collapsed_now = collapse >= 1.0 - th.COLLAPSE_HEIGHT_RATIO
+            if velocity >= th.FALL_DROP_VELOCITY or horizontal_now or collapsed_now:
                 track.state = FallState.FALLING
                 track.drop_started_at = now
                 track.peak_drop_velocity = velocity
-                track.horizontal_since = None
+                track.horizontal_since = now if (horizontal_now or collapsed_now) else None
             elif track.standing_height is None:
                 track.standing_height = height
             else:
