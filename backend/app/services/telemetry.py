@@ -52,7 +52,11 @@ class TelemetryService:
                 self._alert_identity(row.camera_id, row.metadata) == alert_identity and
                 0 <= (now - row.received_at).total_seconds() < self.settings.cooldown_seconds
                 for row in recent)
-            alert_status = "cooldown" if suppress else "pending"
+            alert_status = (
+                "cooldown" if suppress else
+                "pending" if event.pose_confidence > self.settings.alert_min_confidence else
+                "not_configured"
+            )
             incident = IncidentAlert(incident_id=incident_id, camera_id=event.camera_id,
                 zone_id=event.zone_id, event_type=event.event_type, pose_confidence=event.pose_confidence,
                 severity="medium" if event.event_type == "ppe_violation" else "high",
@@ -85,8 +89,9 @@ class TelemetryService:
             previous = incident.metadata.get("assessment")
             if previous == assessment.outcome:
                 return {"status": "duplicate", "incident": incident.model_dump(mode="json")}
-            escalate = assessment.outcome == "unresponsive" or (
-                assessment.outcome == "recovered" and previous == "unresponsive")
+            escalate = incident.pose_confidence > self.settings.alert_min_confidence and (
+                assessment.outcome == "unresponsive" or (
+                    assessment.outcome == "recovered" and previous == "unresponsive"))
             labels = {"unresponsive": "NO MOVEMENT after the fall - possible medical emergency",
                       "moving": "still down but moving", "recovered": "got back up"}
             metadata = {**incident.metadata, "assessment": assessment.outcome,

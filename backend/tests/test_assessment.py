@@ -33,7 +33,7 @@ def test_assessment_records_outcome_without_external_alerts(tmp_path):
         assert result.status_code == 200
         incident = result.json()["incident"]
         assert incident["metadata"]["assessment"] == "unresponsive"
-        assert incident["metadata"]["unresponsive_alert"] == "not_configured"
+        assert "unresponsive_alert" not in incident["metadata"]
         assert incident["alert_results"] == []
 
 

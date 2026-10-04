@@ -22,6 +22,7 @@ class Settings:
     ollama_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "qwen2.5-coder:7b"
     min_confidence: float = 0.7
+    alert_min_confidence: float = 0.9
     cooldown_seconds: int = 30
 
     @classmethod
@@ -45,6 +46,7 @@ class Settings:
             ollama_url=os.getenv("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/"),
             ollama_model=os.getenv("OLLAMA_MODEL", "qwen2.5-coder:7b"),
             min_confidence=float(os.getenv("MIN_CONFIDENCE", "0.7")),
+            alert_min_confidence=float(os.getenv("ALERT_MIN_CONFIDENCE", "0.9")),
             cooldown_seconds=int(os.getenv("ALERT_COOLDOWN_SECONDS", "30")),
         )
 
@@ -62,7 +64,7 @@ class Settings:
             raise ValueError("OLLAMA_URL must be an HTTP(S) URL")
         if not self.ollama_model.strip():
             raise ValueError("OLLAMA_MODEL must not be empty")
-        if not 0 <= self.min_confidence <= 1 or self.cooldown_seconds < 0:
+        if not 0 <= self.min_confidence <= 1 or not 0 <= self.alert_min_confidence <= 1 or self.cooldown_seconds < 0:
             raise ValueError("Invalid confidence threshold or cooldown")
         for address in self.brevo_recipients + ([self.brevo_from_email] if self.brevo_from_email else []):
             if "@" not in address or address.startswith("@") or address.endswith("@"):

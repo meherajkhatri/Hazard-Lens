@@ -1,3 +1,5 @@
+import pytest
+
 from app.config import Settings
 from app.verify_ingestion import verify
 

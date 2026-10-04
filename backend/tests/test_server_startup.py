@@ -16,7 +16,8 @@ def test_real_server_starts_with_local_storage_and_auth(tmp_path):
     environment = {**os.environ, "STORAGE_BACKEND": "sqlite",
         "SQLITE_PATH": str(tmp_path / "startup.sqlite3"), "API_KEY": "startup-test-key",
         "ALERT_PROVIDER": "none",
-        "GEMINI_API_KEY": "", "MIN_CONFIDENCE": "0.7", "ALERT_COOLDOWN_SECONDS": "30"}
+        "GEMINI_API_KEY": "", "MIN_CONFIDENCE": "0.7", "ALERT_MIN_CONFIDENCE": "0.9",
+        "ALERT_COOLDOWN_SECONDS": "30"}
     command = [sys.executable, "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1",
         "--port", str(port), "--ws-max-size", "65536"]
     with (tmp_path / "server.log").open("w+") as log:

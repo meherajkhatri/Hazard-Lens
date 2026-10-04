@@ -49,6 +49,8 @@ class SQLiteStore:
     async def list(self, *, zone_id=None, status=None, since=None, until=None, limit=100, offset=0, camera_id=None, event_type=None, alert_history=False):
         # JSON columns keep the local schema equivalent to the Supabase record.
         clauses, params = [], []
+        if alert_history:
+            clauses.append("json_extract(payload, '$.alert_status') NOT IN ('cooldown', 'not_configured')")
         for field, value in [("zone_id", zone_id), ("status", status), ("camera_id", camera_id), ("event_type", event_type)]:
             if value is not None:
                 clauses.append(f"json_extract(payload, '$.{field}') = ?")
@@ -99,6 +101,8 @@ class SupabaseStore:
     async def list(self, *, zone_id=None, status=None, since=None, until=None, limit=100, offset=0, camera_id=None, event_type=None, alert_history=False):
         order_field = "received_at" if alert_history else "detected_at"
         params = [("order", f"{order_field}.desc,incident_id.desc"), ("limit", str(limit)), ("offset", str(offset))]
+        if alert_history:
+            params.append(("alert_status", "not.in.(cooldown,not_configured)"))
         for field, value in [("zone_id", zone_id), ("status", status), ("camera_id", camera_id), ("event_type", event_type)]:
             if value is not None:
                 params.append((field, f"eq.{value}"))

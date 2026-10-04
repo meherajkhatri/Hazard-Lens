@@ -70,6 +70,9 @@ Open `http://localhost:3000`. Stop services with `Control + C` in each terminal.
   `NEXT_PUBLIC_CAMERA_STREAM_URL=http://127.0.0.1:8001/stream`.
 - For Brevo email, set `ALERT_PROVIDER=brevo_email` and fill its variables in
   `backend/.env`.
+- Automatic email alerts are sent only when model confidence is strictly above
+  90%. Configure this with `ALERT_MIN_CONFIDENCE=0.9`. Incidents below that
+  threshold are still stored in the dashboard but do not trigger email.
 - Existing SQLite records are migrated automatically from the old SMS fields.
 - For existing Supabase data, run `backend/supabase/migrate_alerts.sql` once.
 - Keep credentials out of `NEXT_PUBLIC_*` variables and do not expose this
