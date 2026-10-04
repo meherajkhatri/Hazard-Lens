@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { Activity, ArrowRight, Bell, Check, ChevronRight, CircleCheck, Clock3, Expand, LoaderCircle, MapPin, ScanLine, Send, ShieldCheck, Siren, Sparkles, TriangleAlert, Video, X } from "lucide-react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { askCoach } from "@/lib/call-help/api";
-import { resolveCameraStream } from "@/lib/call-help/cameras";
+import { resolveCameraHealth, resolveCameraStream } from "@/lib/call-help/cameras";
 import { eventLabel, type CoachAnswer, type Incident, type Zone } from "@/lib/call-help/types";
 
 const formatTime = (timestamp: string) => new Date(timestamp).toLocaleString();
@@ -16,7 +16,10 @@ export function LiveCameraPanel({ zone, cameraId, incident }: { zone: Zone; came
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [loaded, setLoaded] = useState(false);
+  const [cvStatus, setCvStatus] = useState<"checking" | "connected" | "offline">("checking");
+  const [cvPeople, setCvPeople] = useState<number | null>(null);
   const stream = resolveCameraStream(cameraId, process.env.NEXT_PUBLIC_CAMERA_STREAM_URL);
+  const healthUrl = resolveCameraHealth(stream);
   const snapshot = typeof incident?.metadata.snapshot_url === "string" ? incident.metadata.snapshot_url : undefined;
   const source = stream || snapshot;
   useEffect(() => {
@@ -25,6 +28,28 @@ export function LiveCameraPanel({ zone, cameraId, incident }: { zone: Zone; came
     document.addEventListener("keydown", key); return () => document.removeEventListener("keydown", key);
   }, [expanded]);
   useEffect(() => { setFailed(false); setLoaded(false); }, [cameraId, source]);
+  useEffect(() => {
+    let disposed = false;
+    const check = async () => {
+      try {
+        const response = await fetch(healthUrl, { cache: "no-store", signal: AbortSignal.timeout(2500) });
+        if (!response.ok) throw new Error("CV engine health failed");
+        const data = await response.json() as { people_detected?: number };
+        if (!disposed) {
+          setCvStatus("connected");
+          setCvPeople(typeof data.people_detected === "number" ? data.people_detected : null);
+        }
+      } catch {
+        if (!disposed) {
+          setCvStatus("offline");
+          setCvPeople(null);
+        }
+      }
+    };
+    void check();
+    const timer = setInterval(() => void check(), 3000);
+    return () => { disposed = true; clearInterval(timer); };
+  }, [healthUrl]);
   return <section className={`panel camera-panel ${expanded ? "camera-expanded" : ""}`} id="live-camera">
     <div className="panel-heading"><div><h2><Video size={15}/> CAMERA MONITORING</h2><p><MapPin size={12}/>{zone.name}{cameraId ? ` · ${cameraId}` : ""}</p></div><button className="icon-button" aria-label={expanded ? "Exit expanded camera" : "Expand camera"} onClick={() => setExpanded(!expanded)}>{expanded ? <X size={17}/> : <Expand size={16}/>}</button></div>
     <div className="camera-view">
@@ -34,7 +59,7 @@ export function LiveCameraPanel({ zone, cameraId, incident }: { zone: Zone; came
         <img key={`${cameraId || "camera"}-${attempt}`} src={source} alt={`Annotated CV feed for ${cameraId || zone.name}`} className="live-stream" onLoad={() => setLoaded(true)} onError={() => { setFailed(true); setLoaded(false); }}/>
         <span className="scene-label">{loaded ? (stream ? "Live CV camera stream" : "Incident snapshot") : "Connecting to camera…"}</span>
       </> : <div className="camera-placeholder"><Video size={36}/><p>{failed ? "Camera feed unavailable" : "No camera feed configured for this incident"}</p>{failed && <button className="button secondary" onClick={() => { setFailed(false); setLoaded(false); setAttempt(n => n + 1); }}>Reconnect camera</button>}</div>}
-    </div><div className="camera-controls"><div className="vision-status"><ScanLine size={15}/><span>Detection overlays are supplied by the CV engine</span></div></div>
+    </div><div className="camera-controls"><div className="vision-status"><ScanLine size={15}/><span>{cvStatus === "connected" ? `CV engine connected${cvPeople !== null ? ` · ${cvPeople} people detected` : ""}` : cvStatus === "offline" ? "CV engine offline — start cv_engine.run" : "Checking CV engine…"}</span></div></div>
   </section>;
 }
 export function ActiveIncidentCard({ incident, pending, onAcknowledge, onCamera }: { incident?: Incident; pending: boolean; onAcknowledge: () => void; onCamera: () => void }) {
