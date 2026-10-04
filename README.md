@@ -120,6 +120,24 @@ Open `http://localhost:3000`. Stop services with `Control + C` in each terminal.
   frontend for HTTPS; `deploy/Caddyfile.example` provides a starting point.
   Keep backend and CV ports private.
 - Back up SQLite data and incident snapshots with `tools/backup_data.sh`.
+  On macOS, copy `deploy/com.hazardlens.backup.plist.example`, replace
+  `REPLACE_ME`, and load it with `launchctl bootstrap gui/$UID`.
+- GitHub Actions runs backend, CV engine, and frontend checks on every push and
+  pull request. Copy the Caddy template in `deploy/` for HTTPS deployment.
+
+## CV accuracy measurement
+
+Place labeled clips in one directory. Names beginning with `fall` are positive
+examples; names such as `adl`, `sit`, or `nonfall` are negative examples:
+
+```bash
+cd cv_engine
+../.venv/bin/python -m cv_engine.eval_clips /path/to/labeled-clips --sweep
+```
+
+The report includes falls caught, missed falls, false alarms, and the threshold
+settings tested. Keep the labeled footage private; use `--export` to save only
+pose skeletons for repeatable evaluation.
 
 ## Optional Safety Coach
 

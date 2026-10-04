@@ -4,6 +4,8 @@ import ssl
 from email.message import EmailMessage
 from email.utils import formataddr
 
+import certifi
+
 from app.schemas import EmailAlert
 
 
@@ -23,7 +25,8 @@ class AlertDispatcher:
         try:
             server = self.smtp_factory("smtp-relay.brevo.com", 587, timeout=10)
             server.ehlo()
-            server.starttls(context=ssl.create_default_context())
+            tls_context = ssl.create_default_context(cafile=certifi.where())
+            server.starttls(context=tls_context)
             server.ehlo()
             server.login(self.settings.brevo_smtp_login, self.settings.brevo_smtp_key)
             server.send_message(message)
