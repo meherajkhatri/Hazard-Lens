@@ -14,7 +14,7 @@ def verify(settings):
     # Brevo bypasses sms_mode, so explicitly select the dry-run Twilio dispatcher.
     # No recipient is contacted, regardless of the configured alert provider.
     settings = replace(settings, alert_provider="twilio", sms_mode="dry_run", sms_recipients=["+15555550123"],
-        gemini_key="", api_key=settings.api_key or "isolated-verification-key")
+        api_key=settings.api_key or "isolated-verification-key")
     probe_id = str(uuid4())
     result = {"status": "failed", "storage": settings.storage, "sms_mode": "dry_run",
         "probe_id": probe_id, "checks": [], "transport": "in_process_fastapi_with_real_storage"}
