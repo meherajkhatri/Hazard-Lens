@@ -27,7 +27,9 @@ class TelemetryService:
                     raise HTTPException(409, "event_id already belongs to different telemetry")
                 return {"status": "duplicate", "incident": existing.model_dump(mode="json")}
             now = datetime.now(timezone.utc)
-            recent = await self.store.list(camera_id=event.camera_id, zone_id=event.zone_id,
+            # Cooldown is per zone, not per camera: two cameras on one zone see the
+            # same fall, and that must be one text, not two.
+            recent = await self.store.list(zone_id=event.zone_id,
                 event_type=event.event_type, limit=1, alert_history=True)
             suppress = any(0 <= (now - row.received_at).total_seconds() < self.settings.cooldown_seconds
                 for row in recent)
@@ -46,5 +48,42 @@ class TelemetryService:
         if incident.sms_status == "pending":
             status, results = await self.dispatcher.dispatch(incident)
             incident = await self.store.update(incident_id, {"sms_status": status, "sms_results": results})
+            await self.hub.publish({"type": "incident.updated", "incident": incident.model_dump(mode="json")})
+        return {"status": "received", "incident": incident.model_dump(mode="json")}
+
+    async def assess(self, incident_id, assessment):
+        """Record the camera's post-fall outcome and escalate when needed.
+
+        - unresponsive: urgent follow-up text, regardless of the cooldown
+        - recovered: an "update" text, but only if an urgent one was sent
+        - moving: recorded only
+        Repeating the same outcome changes nothing and sends nothing.
+        """
+        async with self.lock:
+            incident = await self.store.get(incident_id)
+            if not incident:
+                raise HTTPException(404, "Incident not found")
+            if incident.event_type != "fall":
+                raise HTTPException(409, "Only fall incidents take a post-fall assessment")
+            previous = incident.metadata.get("assessment")
+            if previous == assessment.outcome:
+                return {"status": "duplicate", "incident": incident.model_dump(mode="json")}
+            escalate = assessment.outcome == "unresponsive" or (
+                assessment.outcome == "recovered" and previous == "unresponsive")
+            labels = {"unresponsive": "NO MOVEMENT after the fall - possible medical emergency",
+                      "moving": "still down but moving", "recovered": "got back up"}
+            metadata = {**incident.metadata, "assessment": assessment.outcome,
+                        "seconds_down": round(assessment.seconds_down, 1),
+                        "assessed_at": assessment.observed_at.isoformat()}
+            incident = await self.store.update(incident_id, {
+                "metadata": metadata,
+                "description": f"Possible fall detected; {labels[assessment.outcome]} "
+                               f"({assessment.seconds_down:.0f}s down)"})
+        await self.hub.publish({"type": "incident.updated", "incident": incident.model_dump(mode="json")})
+        if escalate:
+            status, results = await self.dispatcher.escalate(incident, assessment)
+            incident = await self.store.update(incident_id, {
+                "metadata": {**incident.metadata, f"{assessment.outcome}_sms": status},
+                "sms_results": [*incident.sms_results, *results]})
             await self.hub.publish({"type": "incident.updated", "incident": incident.model_dump(mode="json")})
         return {"status": "received", "incident": incident.model_dump(mode="json")}

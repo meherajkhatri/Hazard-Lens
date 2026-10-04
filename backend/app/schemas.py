@@ -55,3 +55,14 @@ class CoachRequest(BaseModel):
     zone_id: str | None = Field(default=None, min_length=1, max_length=100)
     since: AwareDatetime | None = None
     until: AwareDatetime | None = None
+
+
+class FallAssessment(BaseModel):
+    """What the camera saw after a fall (sent by the CV engine's post-fall check)."""
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    outcome: Literal["recovered", "unresponsive", "moving"]
+    seconds_down: float = Field(ge=0, le=3600)
+    motion: float = Field(ge=0, le=10)
+    observed_at: AwareDatetime
+    camera_id: str = Field(min_length=1, max_length=100)
+    zone_id: str = Field(min_length=1, max_length=100)

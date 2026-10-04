@@ -17,6 +17,27 @@ storage. It retains a labeled resolved probe incident, reports one observed broa
 always forces dry-run SMS and the local Coach summary. This is a backend integration probe, not
 proof of the team's physical camera, frontend UI, live Gemini, or SMS delivery. It stops its server on exit.
 
+For live Gemini acceptance, configure `GEMINI_API_KEY` and `GEMINI_MODEL`, then run
+`python -m app.verify_coach`. It creates and resolves one labeled simulated incident, makes two
+Gemini requests (the incident's zone and an empty zone), checks source IDs/citation and live mode,
+and prints both answers for factual review. It always disables SMS. Missing credentials return
+`blocked`; mocked tests do not count as live acceptance. Simulated records are explicitly labeled
+in the model context; blocked, truncated, or malformed provider answers return HTTP 502.
+
+To verify Dev 1's actual sender, install `requirements-integration.txt` in the backend virtual environment,
+then run `python -m app.verify_cv_integration` from `backend/`. This imports the merged
+`cv_engine.transport.emitter.TelemetryEmitter`, sends a synthetic `FallEvent` through its real REST
+queue, and verifies the dashboard WebSocket broadcast, duplicate replay, heartbeat handling, and
+preserved snapshot URL/metadata against configured storage. It forces dry-run SMS and resolves the
+retained probe incident. No GPU, camera access, model download, or video recording is needed.
+Run the combined suite with `python -m pytest -q tests ../cv_engine/tests/test_emitter.py`.
+
+Dev 1's current engine uses `POST /api/v1/telemetry` with `X-API-Key`; the dashboard receives
+`/ws/incidents` events. Camera WebSocket ingestion also exists, but no CV transport rewrite is required.
+For physical rehearsal, Dev 1 sets `BACKEND_URL` to the backend laptop's LAN address and copies the
+matching `API_KEY` into `cv_engine/.env`, then restarts the CV process. Verify one manual trigger first,
+then a safely staged detection, and confirm the dashboard incident ID and database record match.
+
 ## Run locally (Python 3.12)
 
 From `backend/`, in PowerShell:
@@ -63,6 +84,9 @@ The simulator refuses a server using live SMS unless given `--allow-live-sms`.
   `TWILIO_FROM_NUMBER`, and comma-separated `SMS_RECIPIENTS` in E.164 format.
   Live mode requires `API_KEY`. The manual SMS endpoint accepts only configured recipients.
   Trial-account recipient restrictions still apply; configure recipients in Twilio.
+- WhatsApp instead of SMS: `SMS_CHANNEL=whatsapp` sends through the Twilio WhatsApp sandbox
+  (`TWILIO_FROM_NUMBER` = the sandbox number). Each recipient phone must first send the sandbox's
+  "join <code>" message. Free-form text is allowed, unlike trial SMS (error 572006).
 - Gemini: set `GEMINI_API_KEY`, `GEMINI_MODEL` to an available `generateContent` model,
   and `API_KEY`. The Coach retrieves at most 50 recent matching incidents and includes IDs in its response.
   This is structured database retrieval, not vector search. Use explicit `zone_id`, `since`, and `until`
@@ -98,8 +122,9 @@ Reusing an ID with different telemetry returns 409. If no ID is supplied, a dete
 from the normalized payload; a changed timestamp represents a new event.
 
 Each qualifying event is persisted and broadcast. Only falls trigger automatic SMS.
-`ALERT_COOLDOWN_SECONDS` (default 30) suppresses additional SMS for the same camera, zone, and event
-type; it does not suppress incident records or dashboard events. Set it to 0 if each distinct event
+`ALERT_COOLDOWN_SECONDS` (default 30) suppresses additional SMS for the same zone and event type,
+across all cameras in that zone, so two cameras seeing one fall send one text. It does not suppress
+incident records, dashboard events, or post-fall escalations. Set it to 0 if each distinct event
 must alert, including separate people in the same camera view.
 
 ### Dev 1 handoff and rehearsal
@@ -139,10 +164,16 @@ are implemented. The API response waits for SMS submission; the first WebSocket 
 | GET | `/api/v1/incidents` | Newest first; `zone_id`, `status`, `since`, `until`, `limit` (1–500), `offset` |
 | GET | `/api/v1/incidents/{id}` | Retrieve one incident |
 | PATCH | `/api/v1/incidents/{id}` | `{"status":"acknowledged"}` or `{"status":"resolved"}` |
+| POST | `/api/v1/incidents/{id}/assessment` | Camera's post-fall outcome: `{"outcome":"unresponsive"\|"moving"\|"recovered", "seconds_down", "motion", "observed_at", "camera_id", "zone_id"}` |
 | POST | `/api/v1/alerts/sms` | Manual alert to an allowlisted recipient; not idempotent |
 | POST | `/api/v1/coach/chat` | `{"question":"Summarize risks", "zone_id":"Zone 1"}`; optional `since`, `until` |
 
 Resolved incidents cannot be reopened. List results include all statuses unless filtered.
+
+Post-fall assessment: the outcome is stored in the incident's `metadata.assessment`, the description
+says what happened, and `incident.updated` is broadcast. `unresponsive` sends an URGENT text to all
+recipients regardless of the cooldown; `recovered` after `unresponsive` sends an update; `moving`
+and a quick recovery are recorded only. Repeating the same outcome sends nothing.
 
 ## WebSocket integration
 

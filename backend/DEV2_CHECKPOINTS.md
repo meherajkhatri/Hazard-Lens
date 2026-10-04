@@ -36,7 +36,7 @@ It calls Supabase directly and never calls Twilio or the telemetry alert flow. R
 is available without `--write-probe`, but does not pass the gate because write access remains untested.
 The command returns nonzero for missing configuration, incomplete checks, or failures; it never prints keys.
 
-## Hours 3–10 — CORE VERIFIED; LIVE TWILIO DELAYED
+## Hours 3–10 — CORE VERIFIED; LIVE TWILIO BLOCKED BY TRIAL POLICY
 
 Existing implementation: REST ingestion, deduplication, persistent incident log, Twilio adapter,
 recipient allowlist, and labeled dry-run results. Local/mocked tests passed in the initial milestone.
@@ -47,12 +47,14 @@ duplicate retries, conflicting-ID rejection, readback, acknowledgement, resoluti
 recreating the FastAPI app. This used the in-process HTTP test harness against real Supabase; the
 network listener is covered separately by the server startup test. All 27 automated tests pass.
 
-Delayed dependency: Twilio console redirects to a login page that fails with `ERR_CONNECTION_RESET`
-in the in-app browser (two attempts). On October 3 the user reported Twilio servers down and explicitly
-authorized marking this delayed and advancing. A provider-wide outage was not independently verified.
-No real SMS has been sent and phone delivery is not verified. Keep `SMS_MODE=dry_run`; do not label
-dry-run results as sent. Resume live verification when the account, sender, and demo recipients are available.
-Hours 10–16 may proceed under this exception; SMS delivery remains an open acceptance item.
+The initial Twilio-console access issue is resolved. On October 3, a configured Account SID and Auth
+Token returned `200 active` from Twilio's read-only Account API. A single labeled CALL_HELP test through
+the backend's `/api/v1/alerts/sms` route reached Twilio but was rejected with HTTP `400`, provider code
+`572006`. This trial account policy requires predefined SMS templates and rejects the backend's dynamic
+incident text. No delivery SID was returned and phone receipt is not verified. Keep `SMS_MODE=dry_run`;
+do not label this as a delivered alert. The dispatcher now records the non-sensitive provider code with a
+failed result, while excluding raw provider messages that may contain phone numbers. Upgrade the account
+or configure an approved template before retrying live delivery. SMS delivery remains an open acceptance item.
 
 Rehearsal handoff: local `MIN_CONFIDENCE=0.7`, `ALERT_COOLDOWN_SECONDS=0`; an identical copy of
 the backend API key is prepared in ignored `backend/data/dev1.env` for private transfer to Dev 1.
@@ -63,7 +65,7 @@ submission to the team's configured demo recipients; phone receipt confirmed by 
 replay sends no second alert; failure paths preserve the incident and honest SMS status.
 Seed tooling is available for Dev 4's historical data.
 
-## Hours 10–16 — IN PROGRESS
+## Hours 10–16 — BACKEND MILESTONES COMPLETE
 
 Existing implementation: camera WebSocket endpoint, dashboard broadcast endpoint, REST resync contract,
 and backend Gemini context retrieval.
@@ -78,11 +80,35 @@ from simulated camera send to dashboard receive; this is not a performance guara
 All 29 automated tests pass. SMS was forced to dry-run and Coach to local summary throughout.
 
 This validates the backend interfaces with simulated clients, not the physical CV camera or Dev 3 UI.
-Live Gemini and team-device end-to-end verification are still outstanding for this stage.
+Team-device end-to-end verification remains outstanding for this stage.
+
+Dev 1 sender milestone PASSED: fast-forwarded the backend branch to merged main `527e650`
+and ran `python -m app.verify_cv_integration` using the actual CV `TelemetryEmitter` and
+`fall_payload` functions. Dev 1's sender uses REST with `X-API-Key`; the backend broadcasts to
+dashboard WebSockets. No payload or authentication fixes were needed. Live Supabase probe:
+`60802f3d-af91-5e01-8800-4fb4c0e0ff92`. All nine checks passed, including a confidence-0.7 fall,
+duplicate retry, heartbeat, single persisted incident, preserved CV metadata/snapshot URL, and
+resolution broadcast. Observed send-to-broadcast latency was 301.7 ms for this run.
+The combined backend + Dev 1 emitter suite passes 41 tests. This used a synthetic FallEvent and
+real transport code; physical camera detection, image serving, and cross-laptop networking still need rehearsal.
 
 Required verification: real CV sender connects, an event reaches the team's dashboard and database,
 and the Coach uses the new incident. Dev 1 owns the camera pipeline; Dev 3 owns dashboard/chat UI.
-The current checked-out frontend still uses sample data; full team integration is not complete.
+The user reports frontend completion; backend work proceeds to Gemini verification. This report is
+not a claim that this agent has performed the physical cross-laptop rehearsal.
+
+Coach acceptance preparation: added `python -m app.verify_coach`, which requires real credentials,
+resolves a synthetic incident before model calls, checks a cited answer plus empty-zone retrieval,
+and leaves SMS disabled. Gemini context preserves the simulated marker, and malformed, blocked, or
+truncated provider responses fail explicitly. Transient provider failures (`429` and `5xx`) retry up
+to three times with bounded backoff; targeted Coach/API suite: 28 tests passed.
+
+Live Gemini acceptance PASSED with the user's `abhijohal09@gmail.com` AI Studio account and
+`gemini-3.8-flash`. `python -m app.verify_coach` probe
+`e54f0d51-9cd1-4ad9-8a0b-de3a241ca70c` persisted and resolved its simulated incident in Supabase,
+then verified that Gemini cited that incident and returned no sources for an empty zone. SMS remained
+in dry-run mode. The model had earlier returned a temporary `503 UNAVAILABLE`; bounded retries remain
+in place for transient provider capacity failures. The full backend suite passes 39 tests.
 
 ## Hours 16–22 — NOT ADVANCED
 

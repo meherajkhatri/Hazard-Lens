@@ -106,8 +106,10 @@ Fall thresholds live in `FallThresholds` in `config.py`.
 
 - Falls arrive at `POST /api/v1/telemetry` matching your `TelemetryEvent`, with a stable UUID
   `event_id` (resends come back `duplicate`) and `metadata.trigger` = `auto` or `manual`.
+- Post-fall outcomes arrive at `POST /api/v1/incidents/{event_id}/assessment`; `unresponsive`
+  sends an urgent text regardless of the cooldown (see backend/README.md).
 - Heartbeats are `event_type: "normal"` every 5s, which your backend ignores without storing.
-- Every confirmed fall scores `pose_confidence` ≥ 0.736, so keep `MIN_CONFIDENCE` at 0.7 or lower.
+- Every confirmed fall scores `pose_confidence` >= 0.736, so keep `MIN_CONFIDENCE` at 0.7 or lower.
 - Set the same `API_KEY` on both sides; a mismatch shows up as `backend rejected ... (check API_KEY)` in the CV log.
 
 ## For Dev 3 (dashboard)
