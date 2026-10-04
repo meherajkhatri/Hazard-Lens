@@ -4,7 +4,8 @@ import { Activity, MapPin, ShieldCheck } from "lucide-react";
 import { MotionConfig } from "framer-motion";
 import { fetchIncidents, request, updateIncident } from "@/lib/call-help/api";
 import { mergeIncident, type Incident, type Zone } from "@/lib/call-help/types";
-import { ActiveIncidentCard, AISafetyInsights, AlertToast, IncidentDrawer, IncidentTimeline, LiveCameraPanel, SafetyStats, TopNav, ZoneStatusPanel } from "./Panels";
+import { ActiveIncidentCard, AISafetyInsights, AlertToast, IncidentDrawer, IncidentTimeline, SafetyStats, TopNav, ZoneStatusPanel } from "./Panels";
+import { LiveCameraPanel } from "./LiveSafetyCamera";
 import "./dashboard.css";
 
 type Toast = { title: string; message: string; critical?: boolean };
