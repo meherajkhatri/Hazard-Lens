@@ -14,7 +14,7 @@ type Toast = { title: string; message: string; critical?: boolean };
 export default function Dashboard() {
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [selection, setSelection] = useState<Selection | null>(null);
-  const [showAllCameras, setShowAllCameras] = useState(false);
+  const [showAllCameras, setShowAllCameras] = useState(cameras.length > 1);
   const [disabledCameras, setDisabledCameras] = useState<Set<string>>(new Set());
   const selectedZone = selection?.zoneId || cameras[0]?.zone || process.env.NEXT_PUBLIC_CAMERA_ZONE || "Zone 1";
   const selectedCameraId = showAllCameras ? null : selection ? selection.cameraId : cameras[0]?.id || null;
