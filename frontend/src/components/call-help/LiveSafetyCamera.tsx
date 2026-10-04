@@ -6,7 +6,7 @@ import { detectFrame, getCvHealth, simulateFall, type CvHealth, type DetectionRe
 import type { Zone } from "@/lib/call-help/types";
 import "./live-camera.css";
 
-type CameraState = "off" | "starting" | "monitoring" | "person" | "possible" | "fall" | "error";
+type CameraState = "off" | "starting" | "monitoring" | "person" | "possible" | "near_miss" | "fall" | "error";
 
 const labels: Record<CameraState, string> = {
   off: "Camera Off",
@@ -14,6 +14,7 @@ const labels: Record<CameraState, string> = {
   monitoring: "Monitoring — No hazard detected",
   person: "Person Detected",
   possible: "Possible Fall",
+  near_miss: "NEAR MISS",
   fall: "FALL DETECTED",
   error: "Camera / detection error",
 };
@@ -55,6 +56,9 @@ export function LiveCameraPanel({ zone }: { zone: Zone }) {
     if (next.fall_detected) {
       setState("fall");
       setMessage(next.simulated ? "Safe test alert — no emergency contact was triggered." : "Confirmed fall detected by the pose model.");
+    } else if (next.near_miss_detected || next.status === "near_miss") {
+      setState("near_miss");
+      setMessage("Near-miss hazard: person is dangerously close to a detected vehicle.");
     } else if (next.status === "possible_fall") {
       setState("possible");
       setMessage("Fall-like motion is being confirmed across time.");
@@ -148,7 +152,7 @@ export function LiveCameraPanel({ zone }: { zone: Zone }) {
     }
   }
 
-  const stateClass = state === "fall" ? "danger" : state === "possible" ? "warning" : state === "error" ? "error" : "normal";
+  const stateClass = state === "fall" ? "danger" : state === "near_miss" ? "danger" : state === "possible" ? "warning" : state === "error" ? "error" : "normal";
 
   return <section className={`panel live-safety-camera ${stateClass}`} id="live-camera">
     <div className="camera-header">
@@ -177,7 +181,17 @@ export function LiveCameraPanel({ zone }: { zone: Zone }) {
         }}><span>{person.state.toUpperCase()} · {Math.round(person.confidence * 100)}%</span></div>;
       })}
 
+      {result?.vehicles?.map((vehicle, index) => {
+        const [x1, y1, x2, y2] = vehicle.bbox;
+        const width = result.frame.width || 1;
+        const height = result.frame.height || 1;
+        return <div key={`vehicle-${index}`} className="vehicle-box" style={{
+          left: `${x1 / width * 100}%`, top: `${y1 / height * 100}%`,
+          width: `${(x2 - x1) / width * 100}%`, height: `${(y2 - y1) / height * 100}%`,
+        }}><span>VEHICLE</span></div>;
+      })}
       {state === "fall" && <div className="fall-banner"><TriangleAlert size={22}/><strong>FALL DETECTED</strong></div>}
+      {state === "near_miss" && <div className="fall-banner"><TriangleAlert size={22}/><strong>NEAR MISS — DANGEROUS PROXIMITY</strong></div>}
       {state === "possible" && <div className="possible-banner"><CircleAlert size={18}/> Possible fall detected — confirming…</div>}
     </div>
 
