@@ -43,17 +43,39 @@ python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 
 Check `http://127.0.0.1:8000/health`.
 
-### Terminal 2: CV engine
+### Terminal 2: CV engine (camera 1)
 
 ```bash
 cd /path/to/Hazard-Lens
 source .venv/bin/activate
 python -m cv_engine.preflight --allow-local
-python -m cv_engine.run
+python -m cv_engine.run --camera-id zone-1-cam-1 --camera-index 0 --port 8001
 ```
 
 Allow camera access when prompted. The stream is available at
 `http://127.0.0.1:8001/stream`.
+
+### Additional cameras
+
+Run one CV process for each connected camera. Use a different camera index,
+camera ID, and stream port for every process:
+
+```bash
+# Terminal 4: camera 2
+cd /path/to/Hazard-Lens
+source .venv/bin/activate
+python -m cv_engine.run --camera-id zone-1-cam-2 --zone-id "Zone 1" --camera-index 1 --port 8002
+```
+
+List locally available camera indexes before starting the processes:
+
+```bash
+python -m cv_engine.run --list-cameras
+```
+
+For network cameras, replace `--camera-index N` with
+`--camera-url http://camera-address/stream`. Each process recognizes people
+and falls independently and sends incidents with its own `camera_id`.
 
 ### Terminal 3: Frontend
 
@@ -66,8 +88,16 @@ Open `http://localhost:3000`. Stop services with `Control + C` in each terminal.
 
 ## Configuration
 
-- `frontend/.env.local` should use `BACKEND_URL=http://127.0.0.1:8000` and
-  `NEXT_PUBLIC_CAMERA_STREAM_URL=http://127.0.0.1:8001/stream`.
+- `frontend/.env.local` should use `BACKEND_URL=http://127.0.0.1:8000` and map
+  every annotated CV output in `NEXT_PUBLIC_CAMERA_STREAMS`, for example:
+
+  ```dotenv
+  NEXT_PUBLIC_CAMERA_STREAMS={"zone-1-cam-1":"http://127.0.0.1:8001/stream","zone-1-cam-2":"http://127.0.0.1:8002/stream"}
+  NEXT_PUBLIC_CAMERA_ZONES={"zone-1-cam-1":"Zone 1","zone-1-cam-2":"Zone 1"}
+  ```
+
+  The dashboard's **Camera** selector can show one feed or all configured
+  feeds at the same time. Use the CV output URLs, not raw camera URLs.
 - For Brevo email, set `ALERT_PROVIDER=brevo_email` and fill its variables in
   `backend/.env`.
 - Automatic email alerts are sent only when model confidence is strictly above

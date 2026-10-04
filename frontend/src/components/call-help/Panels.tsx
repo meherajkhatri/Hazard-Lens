@@ -9,7 +9,7 @@ import { eventLabel, type CoachAnswer, type Incident, type Zone } from "@/lib/ca
 const formatTime = (timestamp: string) => new Date(timestamp).toLocaleString();
 export function StatusBadge({ status, children }: { status: string; children?: React.ReactNode }) { return <span className={`status-badge ${status}`}><i/>{children || status}</span>; }
 export function TopNav({ connection, onNotifications }: { connection: string; onNotifications: () => void }) {
-  return <header className="top-nav"><div className="brand"><div className="brand-icon"><Activity size={24}/></div><div><div className="brand-name">CALL<span>-</span>HELP</div><div className="brand-tagline">Industrial Transit Safety</div></div></div><div className="nav-right"><span className="small-label">{connection}</span><button className="icon-button" aria-label="View notifications" onClick={onNotifications}><Bell size={19}/></button></div></header>;
+  return <header className="top-nav"><div className="brand"><div className="brand-icon"><Activity size={24}/></div><div><div className="brand-name">HAZARD<span> LENS</span></div><div className="brand-tagline">Industrial Transit Safety</div></div></div><div className="nav-right"><span className="small-label">{connection}</span><button className="icon-button" aria-label="View notifications" onClick={onNotifications}><Bell size={19}/></button></div></header>;
 }
 export function LiveCameraPanel({ zone, cameraId, incident }: { zone: Zone; cameraId: string | null; incident?: Incident }) {
   const [expanded, setExpanded] = useState(false);
@@ -29,7 +29,6 @@ export function LiveCameraPanel({ zone, cameraId, incident }: { zone: Zone; came
     const key = (e: KeyboardEvent) => { if (e.key === "Escape") setExpanded(false); };
     document.addEventListener("keydown", key); return () => document.removeEventListener("keydown", key);
   }, [expanded]);
-  useEffect(() => { setStreamFailed(false); setFailed(false); setLoaded(false); }, [cameraId, stream, snapshot]);
   useEffect(() => {
     let disposed = false;
     const check = async () => {

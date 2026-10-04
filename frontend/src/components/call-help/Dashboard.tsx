@@ -14,8 +14,9 @@ type Toast = { title: string; message: string; critical?: boolean };
 export default function Dashboard() {
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [selection, setSelection] = useState<Selection | null>(null);
+  const [showAllCameras, setShowAllCameras] = useState(false);
   const selectedZone = selection?.zoneId || cameras[0]?.zone || process.env.NEXT_PUBLIC_CAMERA_ZONE || "Zone 1";
-  const selectedCameraId = selection ? selection.cameraId : cameras[0]?.id || null;
+  const selectedCameraId = showAllCameras ? null : selection ? selection.cameraId : cameras[0]?.id || null;
   const focusIncident = (row: Incident) => setSelection({ zoneId: row.zone_id, cameraId: row.camera_id, incidentId: row.incident_id });
   const [drawerId, setDrawerId] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
@@ -35,7 +36,8 @@ export default function Dashboard() {
     status: incidents.some(row => row.zone_id === id && row.status !== "resolved") ? "critical" : "normal",
   }));
   const activeIncident = incidents.find(row => row.incident_id === selection?.incidentId)
-    || incidents.find(row => row.zone_id === selectedZone && (!selectedCameraId || row.camera_id === selectedCameraId) && row.status !== "resolved");
+    || incidents.find(row => (showAllCameras || row.zone_id === selectedZone) &&
+      (!selectedCameraId || row.camera_id === selectedCameraId) && row.status !== "resolved");
   const zone = zones.find(row => row.id === selectedZone) || zones[0];
   useEffect(() => {
     const tick = () => setNow(new Date());
@@ -123,18 +125,32 @@ export default function Dashboard() {
     <main className="dashboard">
       <div className="dashboard-intro"><div><div className="eyebrow"><span/> LIVE OPERATIONS</div><h1>Safety command center<span>.</span></h1><p>Real-time awareness. Faster response. Safer people.</p></div><div className="facility-label"><MapPin size={19}/><b>{zone.name}</b></div></div>
       <div className="operation-strip"><div><ShieldCheck size={15}/><b>{connection}</b></div><button className="button secondary" onClick={toggleSound}>{sound ? "Mute alerts" : "Enable alert sound"}</button></div>
-      {cameras.length > 0 && <label className="camera-selector">Camera <select aria-label="Select camera" value={selectedCameraId || ""} onChange={event => {
+      {cameras.length > 0 && <label className="camera-selector">Camera <select aria-label="Select camera" value={showAllCameras ? "__all__" : selectedCameraId || ""} onChange={event => {
+        if (event.target.value === "__all__") {
+          setShowAllCameras(true);
+          setSelection(null);
+          return;
+        }
+        setShowAllCameras(false);
         const camera = cameras.find(row => row.id === event.target.value);
         if (camera) setSelection({ zoneId: camera.zone, cameraId: camera.id });
       }}>
+        <option value="__all__">All cameras ({cameras.length})</option>
         {!cameras.some(camera => camera.id === selectedCameraId) && <option value={selectedCameraId || ""}>{selectedCameraId || "No mapped camera"}</option>}
         {cameras.map(camera => <option key={camera.id} value={camera.id}>{camera.id} · {camera.zone}</option>)}
       </select></label>}
       {error && <p role="alert" className="integration-error">{error} · Displayed records may be stale.</p>}
-      <div className="primary-grid"><LiveCameraPanel zone={zone} cameraId={selectedCameraId} incident={activeIncident}/><ActiveIncidentCard incident={activeIncident} pending={pending} onAcknowledge={() => activeIncident && void changeStatus(activeIncident.incident_id, "acknowledged")} onCamera={() => { if (activeIncident) { focusIncident(activeIncident); } document.getElementById("live-camera")?.scrollIntoView({ behavior: "smooth" }); }}/></div>
+      <div className={`primary-grid ${showAllCameras ? "all-cameras-mode" : ""}`}>
+        <div className="camera-wall" aria-label={showAllCameras ? "All camera feeds" : "Selected camera feed"}>
+          {showAllCameras
+            ? cameras.map(camera => <LiveCameraPanel key={camera.id} zone={{ id: camera.zone, name: camera.zone, status: "normal", incidentsToday: 0 }} cameraId={camera.id} incident={incidents.find(row => row.camera_id === camera.id && row.status !== "resolved")} />)
+            : <LiveCameraPanel key={selectedCameraId || "no-camera"} zone={zone} cameraId={selectedCameraId} incident={activeIncident}/>}
+        </div>
+        <ActiveIncidentCard incident={activeIncident} pending={pending} onAcknowledge={() => activeIncident && void changeStatus(activeIncident.incident_id, "acknowledged")} onCamera={() => { if (activeIncident) { setShowAllCameras(false); focusIncident(activeIncident); } document.getElementById("live-camera")?.scrollIntoView({ behavior: "smooth" }); }}/>
+      </div>
       <div className="secondary-grid"><ZoneStatusPanel zones={zones} selected={selectedZone} onSelect={row => { const incident = incidents.find(item => item.zone_id === row.id && item.status !== "resolved"); if (incident) focusIncident(incident); else setSelection({ zoneId: row.id, cameraId: cameras.find(camera => camera.zone === row.id)?.id || null }); }}/><SafetyStats incidents={today}/><IncidentTimeline incidents={incidents} onSelect={row => { setDrawerId(row.incident_id); focusIncident(row); }}/></div>
       <AISafetyInsights zone={selectedZone}/>
-      <footer className="dashboard-footer"><span><Activity size={12}/> CALL-HELP</span><span>{mode}</span></footer>
+      <footer className="dashboard-footer"><span><Activity size={12}/> HAZARD LENS</span><span>{mode}</span></footer>
     </main>
     <IncidentDrawer incident={incidents.find(row => row.incident_id === drawerId) || null} pending={pending} onDismiss={dismissDrawer} onResolve={id => void changeStatus(id, "resolved")}/>
     <AlertToast toast={toast} onDismiss={() => setToast(null)}/>
