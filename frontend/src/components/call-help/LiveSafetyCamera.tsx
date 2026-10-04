@@ -38,7 +38,10 @@ export function LiveCameraPanel({ zone }: { zone: Zone }) {
   useEffect(() => {
     const controller = new AbortController();
     getCvHealth(controller.signal)
-      .then(setHealth)
+      .then(next => {
+        setHealth(next);
+        if (!next.model_ready) setMessage(next.error ? `CV backend online, model unavailable: ${next.error}` : "CV backend online, model unavailable.");
+      })
       .catch(error => setMessage(error instanceof Error ? error.message : "CV backend unavailable"));
     return () => {
       controller.abort();
