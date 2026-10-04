@@ -5,6 +5,10 @@ to the next stage, except for explicit user-approved deferrals recorded below.
 Existing code and mocked tests are not proof of live integration.
 Updated October 3, 2026.
 
+> Historical note: older entries mention SMS/Twilio because that was an
+> earlier implementation. The current product uses generic alerts with
+> optional Brevo email; those provider tests are not active.
+
 ## Hours 0–3 — PASSED
 
 | Requirement | Evidence | Status |
@@ -15,7 +19,7 @@ Updated October 3, 2026.
 | Supabase incidents schema | `supabase/schema.sql` | Executed successfully in project `gygghvgwrcalviwjsspd` |
 | Working Supabase persistence | `python -m app.verify_setup --write-probe` | Passed: columns, insert, readback, uniqueness, update |
 
-Live project: `call-help-safety`, CALL_HELP organization, free plan, East US (North Virginia).
+Live project: `hazard-lens-safety`, Hazard Lens organization, free plan, East US (North Virginia).
 The user completed sign-in and project/password creation. The schema was installed through the SQL editor.
 The existing server key and project URL are configured only in ignored `backend/.env`.
 Live probe ID: `ff9094c4-11d5-4edf-8b14-a9d7a18ccfaa`.
@@ -48,13 +52,21 @@ recreating the FastAPI app. This used the in-process HTTP test harness against r
 network listener is covered separately by the server startup test. All 27 automated tests pass.
 
 The initial Twilio-console access issue is resolved. On October 3, a configured Account SID and Auth
-Token returned `200 active` from Twilio's read-only Account API. A single labeled CALL_HELP test through
+Token returned `200 active` from Twilio's read-only Account API. A single labeled Hazard Lens test through
 the backend's `/api/v1/alerts/sms` route reached Twilio but was rejected with HTTP `400`, provider code
 `572006`. This trial account policy requires predefined SMS templates and rejects the backend's dynamic
 incident text. No delivery SID was returned and phone receipt is not verified. Keep `SMS_MODE=dry_run`;
 do not label this as a delivered alert. The dispatcher now records the non-sensitive provider code with a
 failed result, while excluding raw provider messages that may contain phone numbers. Upgrade the account
 or configure an approved template before retrying live delivery. SMS delivery remains an open acceptance item.
+
+Brevo transactional-email fallback PASSED on October 3. The backend authenticated to Brevo SMTP after
+the backend machine IP was authorized, then submitted a labeled rehearsal email through
+`POST /api/v1/alerts/email` using the verified `HazardLens <ajohal@kent.edu>` sender. Brevo accepted
+the message as `queued`, and the configured recipient confirmed inbox delivery. Automatic fall alerts can
+therefore use `ALERT_PROVIDER=brevo_email`; their results are explicitly marked `channel: email` while
+the legacy `sms_status` field remains for frontend compatibility. This is a verified email fallback, not
+proof of SMS or phone delivery.
 
 Rehearsal handoff: local `MIN_CONFIDENCE=0.7`, `ALERT_COOLDOWN_SECONDS=0`; an identical copy of
 the backend API key is prepared in ignored `backend/data/dev1.env` for private transfer to Dev 1.

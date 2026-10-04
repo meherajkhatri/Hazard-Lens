@@ -22,7 +22,7 @@ from cv_engine.detector.types import FallEvent, PostFallAssessment
 log = logging.getLogger(__name__)
 
 TELEMETRY_PATH = "/api/v1/telemetry"
-# The backend answers a fall only after submitting the SMS, which can take
+# The backend may submit an alert before answering a fall, which can take
 # several seconds; heartbeats should fail fast.
 FALL_TIMEOUT_S = 15.0
 HEARTBEAT_TIMEOUT_S = 2.0

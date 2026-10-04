@@ -1,4 +1,4 @@
-"""Hours 0–3 gate: verify the configured Supabase incident table without sending SMS."""
+"""Hours 0–3 gate: verify the configured Supabase incident table without alerts."""
 import argparse
 import asyncio
 import json
@@ -39,9 +39,9 @@ async def verify(settings, *, write_probe=False, transport=None):
             now = datetime.now(timezone.utc)
             probe = IncidentAlert(incident_id=probe_id, camera_id="setup-verification",
                 zone_id="Setup Verification", event_type="fall", pose_confidence=1,
-                severity="high", description="SIMULATED setup verification; no emergency and no SMS",
+                severity="high", description="SIMULATED setup verification; no emergency and no alerts",
                 location="Setup Verification", detected_at=now, received_at=now,
-                status="resolved", sms_status="not_required", metadata={"simulated": True, "setup_probe": True})
+                status="resolved", alert_status="not_configured", metadata={"simulated": True, "setup_probe": True})
             # A labeled, resolved record is retained as evidence. No deletes or alert dispatch.
             result["probe_id"] = probe_id
             if not await store.insert(probe):
@@ -54,7 +54,7 @@ async def verify(settings, *, write_probe=False, transport=None):
             if await store.insert(probe):
                 raise ValueError("Duplicate accepted")
             result["checks"].append("unique_incident_id")
-            description = "SIMULATED setup verification PASSED; no emergency and no SMS"
+            description = "SIMULATED setup verification PASSED; no emergency and no alerts"
             updated = await store.update(probe_id, {"description": description})
             if updated is None or updated.description != description:
                 raise ValueError("Update mismatch")
@@ -71,7 +71,7 @@ async def verify(settings, *, write_probe=False, transport=None):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--write-probe", action="store_true",
-        help="Retain one labeled, resolved test incident to verify writes. Never sends SMS.")
+        help="Retain one labeled, resolved test incident to verify writes. Never sends alerts.")
     args = parser.parse_args()
     result = asyncio.run(verify(Settings.from_env(), write_probe=args.write_probe))
     print(json.dumps(result, indent=2))

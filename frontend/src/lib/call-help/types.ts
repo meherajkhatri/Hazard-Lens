@@ -10,13 +10,13 @@ export type Incident = {
   detected_at: string;
   received_at: string;
   status: "active" | "acknowledged" | "resolved";
-  sms_status: string;
-  sms_results: { status: string; recipient: string }[];
+  alert_status: string;
+  alert_results: { status: string; recipient: string; channel?: string }[];
   metadata: Record<string, string | number | boolean>;
 };
 export type CoachAnswer = {
   answer: string;
-  mode: "gemini" | "local_summary";
+  mode: "ollama";
   incident_ids: string[];
   context_count: number;
   truncated: boolean;

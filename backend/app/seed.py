@@ -1,4 +1,4 @@
-"""Seed demo history directly; never dispatch SMS or publish live fall events."""
+"""Seed demo history directly without dispatching alerts."""
 import asyncio
 from datetime import datetime, timedelta, timezone
 from uuid import NAMESPACE_URL, uuid5
@@ -27,9 +27,9 @@ async def seed(settings=None):
                 severity="medium" if kind == "ppe_violation" else "high",
                 description=f"Simulated {kind.replace('_', ' ')}", location=zone,
                 detected_at=timestamp, received_at=timestamp, status="resolved",
-                sms_status="not_required", metadata={"simulated": True} ))
+                alert_status="not_configured", metadata={"simulated": True} ))
         return inserted
 
 
 if __name__ == "__main__":
-    print(f"Inserted {asyncio.run(seed())} simulated incidents; no SMS sent.")
+    print(f"Inserted {asyncio.run(seed())} simulated incidents; no alerts sent.")

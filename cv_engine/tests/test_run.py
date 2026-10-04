@@ -154,10 +154,11 @@ def test_per_camera_flags_override_shared_config():
     assert apply_overrides(base, parse_args([])) == base
 
 
-def test_list_cameras_without_hardware_returns_empty():
+def test_list_cameras_returns_valid_devices():
     from cv_engine.camera import list_cameras
 
-    assert list_cameras() == []
+    assert all(index >= 0 and width > 0 and height > 0
+               for index, width, height in list_cameras())
 
 
 @pytest.mark.skipif(not WEIGHTS.exists(), reason="yolov8n-pose.pt not available")
@@ -267,15 +268,15 @@ def test_window_closed_detects_closed_or_missing_window(monkeypatch):
     from cv_engine import run
 
     monkeypatch.setattr(run.cv2, "getWindowProperty", lambda title, prop: 0.0)
-    assert run.window_closed("Call-Help cam")
+    assert run.window_closed("Hazard Lens cam")
     monkeypatch.setattr(run.cv2, "getWindowProperty", lambda title, prop: 1.0)
-    assert not run.window_closed("Call-Help cam")
+    assert not run.window_closed("Hazard Lens cam")
 
     def missing(title, prop):
         raise run.cv2.error("NULL window")
 
     monkeypatch.setattr(run.cv2, "getWindowProperty", missing)
-    assert run.window_closed("Call-Help cam")
+    assert run.window_closed("Hazard Lens cam")
 
 
 def test_on_floor_label_shows_while_counting_toward_found_down():

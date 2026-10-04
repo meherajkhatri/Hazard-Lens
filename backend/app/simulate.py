@@ -1,4 +1,4 @@
-"""Send one simulated fall to a running backend. Uses the server's SMS mode."""
+"""Send one simulated fall to a running backend."""
 import argparse
 from datetime import datetime, timezone
 from uuid import uuid4
@@ -12,14 +12,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--url", default="http://127.0.0.1:8000")
     parser.add_argument("--zone", default="Zone 1")
-    parser.add_argument("--allow-live-sms", action="store_true")
     args = parser.parse_args()
     settings = Settings.from_env()
     with httpx.Client(base_url=args.url, timeout=40, headers={"X-API-Key": settings.api_key}) as client:
         health = client.get("/health")
         health.raise_for_status()
-        if health.json().get("sms_mode") != "dry_run" and not args.allow_live_sms:
-            parser.error("Server uses live SMS; pass --allow-live-sms to send a demo alert")
         response = client.post("/api/v1/telemetry", json={"event_id": str(uuid4()),
             "camera_id": "demo-webcam-1", "zone_id": args.zone,
             "timestamp": datetime.now(timezone.utc).isoformat(), "pose_event": "fall",
