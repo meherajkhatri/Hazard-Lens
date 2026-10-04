@@ -35,7 +35,8 @@ export function LiveCameraPanel({ zone, cameraId, incident, enabled = true, onTo
       try {
         const response = await fetch(healthUrl, { cache: "no-store", signal: AbortSignal.timeout(2500) });
         if (!response.ok) throw new Error("CV engine health failed");
-        const data = await response.json() as { people_detected?: number };
+        const data = await response.json() as { camera?: string; people_detected?: number };
+        if (data.camera && data.camera !== "ok") throw new Error("CV camera is reconnecting");
         if (!disposed) {
           setCvStatus("connected");
           setCvPeople(typeof data.people_detected === "number" ? data.people_detected : null);
@@ -51,6 +52,18 @@ export function LiveCameraPanel({ zone, cameraId, incident, enabled = true, onTo
     const timer = setInterval(() => void check(), 3000);
     return () => { disposed = true; clearInterval(timer); };
   }, [healthUrl]);
+  useEffect(() => {
+    if (!enabled || !stream) return;
+    const timer = setInterval(() => {
+      if (cvStatus === "offline" || streamFailed) {
+        setStreamFailed(false);
+        setFailed(false);
+        setLoaded(false);
+        setAttempt(current => current + 1);
+      }
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [cvStatus, enabled, stream, streamFailed]);
   return <section className={`panel camera-panel ${expanded ? "camera-expanded" : ""} ${!enabled ? "camera-disabled" : ""}`} id="live-camera">
     <div className="panel-heading"><div><h2><Video size={15}/> CAMERA MONITORING</h2><p><MapPin size={12}/>{zone.name}{cameraId ? ` · ${cameraId}` : ""}</p></div><div className="camera-panel-actions">{onToggle && <button className="button secondary camera-toggle" onClick={onToggle} aria-pressed={enabled}>{enabled ? "Disable" : "Enable"}</button>}{enabled && <button className="icon-button" aria-label={expanded ? "Exit expanded camera" : "Expand camera"} onClick={() => setExpanded(!expanded)}>{expanded ? <X size={17}/> : <Expand size={16}/>}</button>}</div></div>
     {!enabled ? <div className="camera-placeholder"><Video size={36}/><p>Camera monitoring disabled</p></div> : <>
