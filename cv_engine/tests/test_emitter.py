@@ -213,3 +213,70 @@ def test_falls_queued_during_outage_are_delivered_on_recovery(free_port, tmp_pat
     finally:
         server.should_exit = True
         thread.join(5)
+
+
+def test_unresponsive_assessment_updates_the_incident_on_the_real_backend(free_port, tmp_path):
+    """Camera -> fall -> post-fall 'unresponsive' -> incident updated on the backend."""
+    from cv_engine.detector.types import Assessment, PostFallAssessment
+    from cv_engine.transport.emitter import assessment_payload
+
+    server, thread = _start_backend(free_port, tmp_path)
+    try:
+        emitter = TelemetryEmitter(f"http://127.0.0.1:{free_port}")
+        a = PostFallAssessment(EVENT, Assessment.UNRESPONSIVE, EVENT.timestamp + 10, 10.0, 0.004)
+        emitter.send(fall_payload(EVENT, CAMERA_ID, ZONE_ID, sent_at=time.time()))
+        emitter.send_assessment(event_id(CAMERA_ID, EVENT), assessment_payload(a, CAMERA_ID, ZONE_ID))
+        assert _wait_for(lambda: emitter.assessments_delivered == 1)
+        [incident] = _incidents(free_port)
+        assert incident["metadata"]["assessment"] == "unresponsive"
+        assert "NO MOVEMENT" in incident["description"]
+        assert emitter.rejected == 0
+        emitter.close()
+    finally:
+        server.should_exit = True
+        thread.join(5)
+
+
+def test_backend_without_assessment_endpoint_is_tolerated(free_port, tmp_path, caplog, monkeypatch):
+    """An older backend answers 404: warn once, keep sending falls and heartbeats."""
+    from cv_engine.detector.types import Assessment, PostFallAssessment
+    from cv_engine.transport import emitter as emitter_module
+    from cv_engine.transport.emitter import assessment_payload
+
+    monkeypatch.setattr(emitter_module, "assessment_path", lambda incident_id: f"/api/v1/missing/{incident_id}")
+    server, thread = _start_backend(free_port, tmp_path)
+    try:
+        emitter = TelemetryEmitter(f"http://127.0.0.1:{free_port}")
+        a = PostFallAssessment(EVENT, Assessment.UNRESPONSIVE, EVENT.timestamp + 10, 10.0, 0.004)
+        emitter.send(fall_payload(EVENT, CAMERA_ID, ZONE_ID, sent_at=time.time()))
+        emitter.send_assessment(event_id(CAMERA_ID, EVENT), assessment_payload(a, CAMERA_ID, ZONE_ID))
+        emitter.send_assessment(event_id(CAMERA_ID, EVENT), assessment_payload(a, CAMERA_ID, ZONE_ID))
+        emitter.send(heartbeat_payload(CAMERA_ID, ZONE_ID, time.time(), 20.0, 1))
+        assert _wait_for(lambda: emitter.delivered == 2)  # fall + heartbeat still go through
+        assert emitter.rejected == 0 and emitter.assessments_delivered == 0
+        assert caplog.text.count("endpoint yet") == 1
+        emitter.close()
+    finally:
+        server.should_exit = True
+        thread.join(5)
+
+
+def test_assessment_payload_shape():
+    from cv_engine.detector.types import Assessment, PostFallAssessment
+    from cv_engine.transport.emitter import assessment_payload
+
+    body = assessment_payload(PostFallAssessment(EVENT, Assessment.MOVING, EVENT.timestamp + 10, 10.04, 0.0712),
+                              CAMERA_ID, ZONE_ID)
+    assert body == {"outcome": "moving", "seconds_down": 10.0, "motion": 0.071,
+                    "observed_at": "2026-10-03T21:14:17.412Z", "camera_id": CAMERA_ID, "zone_id": ZONE_ID}
+
+
+def test_unreachable_backend_is_logged_once_not_per_retry(free_port, caplog):
+    emitter = TelemetryEmitter(f"http://127.0.0.1:{free_port}")
+    for i in range(5):
+        from dataclasses import replace
+        emitter.send(fall_payload(replace(EVENT, track_id=i), CAMERA_ID, ZONE_ID, sent_at=time.time()))
+    assert _wait_for(lambda: emitter.pending_falls == 5)
+    time.sleep(3)  # at least one more resend cycle
+    assert caplog.text.count("backend unreachable") == 1
+    assert "falls waiting" in caplog.text and "cv_engine.preflight" in caplog.text

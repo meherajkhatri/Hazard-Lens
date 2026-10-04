@@ -7,6 +7,7 @@ from typing import Literal
 from uuid import UUID
 
 import httpx
+import anyio
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -14,7 +15,7 @@ from pydantic import AwareDatetime, ValidationError
 
 from app.config import Settings
 from app.realtime import EventHub
-from app.schemas import CoachRequest, IncidentAlert, IncidentUpdate, SMSAlert, TelemetryEvent
+from app.schemas import CoachRequest, FallAssessment, IncidentAlert, IncidentUpdate, SMSAlert, TelemetryEvent
 from app.services.alert_dispatcher import AlertDispatcher
 from app.services.coach import SafetyCoach
 from app.services.telemetry import TelemetryService
@@ -93,6 +94,10 @@ def create_app(settings=None, *, transport=None):
         await app.state.hub.publish({"type": "incident.updated", "incident": result.model_dump(mode="json")})
         return result
 
+    @router.post("/incidents/{incident_id}/assessment")
+    async def assess_incident(incident_id: UUID, assessment: FallAssessment):
+        return await app.state.telemetry.assess(incident_id, assessment)
+
     @router.post("/alerts/sms")
     async def sms(alert: SMSAlert):
         if alert.recipient not in settings.sms_recipients:
@@ -129,25 +134,30 @@ def create_app(settings=None, *, transport=None):
         if not await connect(socket):
             return
         queue = app.state.hub.subscribe(socket)
-        await socket.send_json({"type": "connected"})
         async def send_events():
             while True:
                 await socket.send_json(await queue.get())
+
         async def receive():
             while True:
                 await socket.receive_text()
-        tasks = [asyncio.create_task(send_events()), asyncio.create_task(receive())]
+
         try:
-            done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-            for task in done:
-                task.result()
-        except (WebSocketDisconnect, RuntimeError):
-            pass
+            await socket.send_json({"type": "connected"})
+            # Keep both workers inside the connection's cancellation scope.
+            # Raw asyncio tasks can outlive an ASGI disconnect/shutdown scope.
+            async with anyio.create_task_group() as group:
+                async def run_worker(worker):
+                    try:
+                        await worker()
+                    except (WebSocketDisconnect, RuntimeError):
+                        pass
+                    finally:
+                        group.cancel_scope.cancel()
+                group.start_soon(run_worker, send_events)
+                group.start_soon(run_worker, receive)
         finally:
             app.state.hub.unsubscribe(socket)
-            for task in tasks:
-                task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
 
     @app.websocket("/ws/telemetry")
     async def live_telemetry(socket: WebSocket):

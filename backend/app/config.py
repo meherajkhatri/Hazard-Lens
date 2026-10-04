@@ -14,6 +14,8 @@ class Settings:
     supabase_url: str = ""
     supabase_key: str = ""
     sms_mode: str = "dry_run"
+    # "sms" or "whatsapp" (Twilio WhatsApp sandbox: free-form text to numbers that joined it).
+    sms_channel: str = "sms"
     twilio_sid: str = ""
     twilio_token: str = ""
     twilio_from: str = ""
@@ -36,6 +38,7 @@ class Settings:
             supabase_url=os.getenv("SUPABASE_URL", "").rstrip("/"),
             supabase_key=os.getenv("SUPABASE_SECRET_KEY", ""),
             sms_mode=os.getenv("SMS_MODE", "dry_run"),
+            sms_channel=os.getenv("SMS_CHANNEL", "sms"),
             twilio_sid=os.getenv("TWILIO_ACCOUNT_SID", ""),
             twilio_token=os.getenv("TWILIO_AUTH_TOKEN", ""),
             twilio_from=os.getenv("TWILIO_FROM_NUMBER", ""),
@@ -51,6 +54,8 @@ class Settings:
             raise ValueError("STORAGE_BACKEND must be sqlite or supabase")
         if self.storage == "supabase" and not (self.supabase_url.startswith("https://") and self.supabase_key):
             raise ValueError("Supabase requires an HTTPS URL and a server secret key")
+        if self.sms_channel not in {"sms", "whatsapp"}:
+            raise ValueError("SMS_CHANNEL must be sms or whatsapp")
         if self.sms_mode not in {"dry_run", "twilio"}:
             raise ValueError("SMS_MODE must be dry_run or twilio")
         if self.sms_mode == "twilio" and not all([self.api_key, self.twilio_sid, self.twilio_token, self.twilio_from, self.sms_recipients]):

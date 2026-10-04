@@ -22,9 +22,13 @@ FRAME = np.zeros((720, 640, 3), dtype=np.uint8)
 class ListEmitter:
     def __init__(self):
         self.sent = []
+        self.assessments = []
 
     def send(self, payload):
         self.sent.append(payload)
+
+    def send_assessment(self, incident_id, body):
+        self.assessments.append((incident_id, body))
 
 
 class SnapshotRecorder:
@@ -129,3 +133,137 @@ def test_main_end_to_end_on_generated_clip(tmp_path, monkeypatch, caplog):
     finally:
         server.should_exit = True
         thread.join(5)
+
+
+def test_per_camera_flags_override_shared_config():
+    from cv_engine.run import apply_overrides, parse_args
+
+    base = EngineConfig(CAMERA_ID="zone-1-cam-1", ZONE_ID="Zone 1", CAMERA_INDEX=0, STREAM_PORT=8001, API_KEY="k")
+    cfg = apply_overrides(base, parse_args(["--camera-id", "corridor-cam-1", "--zone-id", "Forklift Corridor",
+                                            "--camera-index", "2", "--port", "8003"]))
+    assert (cfg.CAMERA_ID, cfg.ZONE_ID, cfg.CAMERA_INDEX, cfg.STREAM_PORT) == ("corridor-cam-1", "Forklift Corridor", 2, 8003)
+    assert cfg.API_KEY == "k"  # untouched settings still come from the shared config
+    assert apply_overrides(base, parse_args([])) == base
+
+
+def test_list_cameras_without_hardware_returns_empty():
+    from cv_engine.camera import list_cameras
+
+    assert list_cameras() == []
+
+
+@pytest.mark.skipif(not WEIGHTS.exists(), reason="yolov8n-pose.pt not available")
+def test_two_cameras_run_side_by_side_against_one_backend(tmp_path, monkeypatch):
+    """Two engines with different camera ids and ports share one backend."""
+    pytest.importorskip("ultralytics")
+    import socket
+
+    from cv_engine import run
+    from cv_engine.tests.test_emitter import _start_backend
+
+    clip = tmp_path / "empty.avi"
+    writer = cv2.VideoWriter(str(clip), cv2.VideoWriter_fourcc(*"MJPG"), 30, (320, 240))
+    for i in range(30):
+        writer.write(np.full((240, 320, 3), i * 5 % 255, dtype=np.uint8))
+    writer.release()
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    server, thread = _start_backend(port, tmp_path)
+    monkeypatch.setattr(run, "EngineConfig", lambda: EngineConfig(
+        BACKEND_URL=f"http://127.0.0.1:{port}", MODEL_PATH=str(WEIGHTS), PUBLIC_HOST="127.0.0.1"))
+    errors = []
+
+    def camera(cam_id: str):
+        try:
+            run.main(["--video", str(clip), "--no-window", "--camera-id", cam_id, "--port", "0"])
+        except BaseException as exc:  # noqa: BLE001 - surface any failure to the test
+            errors.append(exc)
+
+    try:
+        engines = [threading.Thread(target=camera, args=(cam,)) for cam in ("zone-1-cam-1", "zone-1-cam-2")]
+        for engine in engines:
+            engine.start()
+        for engine in engines:
+            engine.join(120)
+        assert errors == []
+    finally:
+        server.should_exit = True
+        thread.join(5)
+
+
+def test_blinded_camera_is_flagged_in_stream_status_overlay_and_heartbeat():
+    """Flashlight into the lens: the engine keeps running and says it can't see."""
+    from cv_engine.overlay import VISION_WARNING_COLOR
+
+    rng = np.random.default_rng(0)
+    scene = np.dstack([np.kron(rng.integers(40, 220, (12, 16)), np.ones((40, 40)))] * 3).astype(np.uint8)
+    blinded = np.full_like(scene, 255)
+    engine, emitter, streamer, clock = make_engine(lambda t: [])
+    frames = [scene] * (4 * FPS) + [blinded] * (2 * FPS)
+    annotated = None
+    for i, frame in enumerate(frames):
+        clock["t"] = i / FPS
+        annotated, _ = engine.process(frame, clock["t"])
+
+    assert streamer.status["vision"] == "glare"
+    assert tuple(annotated[-5, 5]) == VISION_WARNING_COLOR
+    beats = [p for p in emitter.sent if p["metadata"].get("heartbeat")]
+    assert beats[0]["metadata"]["vision"] == "ok" and beats[-1]["metadata"]["vision"] == "glare"
+
+
+def test_person_still_after_fall_is_escalated_on_stream_and_to_backend():
+    engine, emitter, streamer, clock = make_engine(falling_person)
+    annotated = None
+    for i in range(16 * FPS):
+        clock["t"] = i / FPS
+        annotated, _ = engine.process(FRAME, clock["t"])
+
+    fall = next(p for p in emitter.sent if p["event_type"] == "fall")
+    [(incident_id, body)] = emitter.assessments
+    assert incident_id == fall["event_id"]
+    assert body["outcome"] == "unresponsive" and body["seconds_down"] == pytest.approx(10.0, abs=0.2)
+    notes, unresponsive = engine._post_fall_notes(clock["t"])
+    assert unresponsive and notes[1].endswith("NO MOVEMENT")
+
+
+def test_recovered_label_after_getting_up():
+    def fall_then_get_up(t):
+        if t < 4.0:
+            return falling_person(t)
+        k = min((t - 4.0) / 1.0, 1.0)
+        return [make_pose(1, hip_y=400 + 0.5 * BODY_PX * (1 - k), angle_deg=85 * (1 - k))]
+
+    engine, emitter, _, clock = make_engine(fall_then_get_up)
+    for i in range(8 * FPS):
+        clock["t"] = i / FPS
+        engine.process(FRAME, clock["t"])
+    assert [b["outcome"] for _, b in emitter.assessments] == ["recovered"]
+    assert engine._post_fall_notes(clock["t"])[0] == {1: "RECOVERED"}
+
+
+def test_cuda_request_falls_back_to_cpu_when_torch_has_no_gpu(monkeypatch, caplog):
+    torch = pytest.importorskip("torch")
+    from cv_engine.run import usable_device
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    assert usable_device("cuda") == "cpu"
+    assert "can't use a GPU" in caplog.text
+    assert usable_device("cpu") == "cpu"
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    assert usable_device("cuda") == "cuda"
+
+
+def test_window_closed_detects_closed_or_missing_window(monkeypatch):
+    from cv_engine import run
+
+    monkeypatch.setattr(run.cv2, "getWindowProperty", lambda title, prop: 0.0)
+    assert run.window_closed("Call-Help cam")
+    monkeypatch.setattr(run.cv2, "getWindowProperty", lambda title, prop: 1.0)
+    assert not run.window_closed("Call-Help cam")
+
+    def missing(title, prop):
+        raise run.cv2.error("NULL window")
+
+    monkeypatch.setattr(run.cv2, "getWindowProperty", missing)
+    assert run.window_closed("Call-Help cam")

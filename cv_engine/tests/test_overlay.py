@@ -29,3 +29,37 @@ def test_skeleton_only_hides_the_camera_image():
     out = draw_frame(FRAME, [make_pose()], {}, "Zone 1", skeleton_only=True)
     assert not _has_color(out, (128, 128, 128))
     assert _has_color(out, STATE_COLORS[FallState.UPRIGHT])
+
+
+def test_vision_warning_adds_amber_bar_at_bottom():
+    from cv_engine.overlay import VISION_WARNING_COLOR
+
+    out = draw_frame(FRAME, [], {}, "Zone 1", vision_warning="VISION IMPAIRED: GLARE")
+    assert tuple(out[-3, 2]) == VISION_WARNING_COLOR
+    assert not _has_color(draw_frame(FRAME, [], {}, "Zone 1"), VISION_WARNING_COLOR)
+
+
+def test_long_banner_text_stays_inside_a_640px_frame():
+    from cv_engine.overlay import BANNER_PX
+
+    frame = np.zeros((480, 640, 3), np.uint8)
+    long_status = "NO MOVEMENT - POSSIBLE MEDICAL EMERGENCY  |  Forklift Corridor | corridor-cam-1 | 24 FPS | 3 people"
+    out = draw_frame(frame, [], {}, long_status)
+    banner = out[:BANNER_PX]
+    text_cols = np.where((banner == 255).all(axis=-1).any(axis=0))[0]
+    assert text_cols.max() < 640 - 4  # last glyph ends before the right edge
+
+
+def test_note_stays_visible_when_box_reaches_bottom_of_frame():
+    from dataclasses import replace
+
+    frame = np.zeros((480, 640, 3), np.uint8)
+    pose = make_pose(1, angle_deg=85)
+    pose.keypoints[:, 2] = 0.0  # no skeleton lines, so only the box and the note are drawn
+    person = replace(pose, bbox=(200.0, 300.0, 600.0, 479.0))
+    red = STATE_COLORS[FallState.DOWN]
+    inside_bottom = (slice(440, 476), slice(205, 595))  # excludes the box's own red border
+    with_note = draw_frame(frame, [person], {1: FallState.DOWN}, "Zone 1", notes={1: "DOWN 7s - NO MOVEMENT"})
+    without = draw_frame(frame, [person], {1: FallState.DOWN}, "Zone 1")
+    assert _has_color(with_note[inside_bottom], red)
+    assert not _has_color(without[inside_bottom], red)

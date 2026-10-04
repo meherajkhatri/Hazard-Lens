@@ -52,3 +52,21 @@ class FallEvent:
     keypoint_conf: float
     bbox: BBox
     manual: bool = False  # True when raised with the F key, not by detection
+
+
+class Assessment(str, Enum):
+    RECOVERED = "recovered"  # got back up
+    UNRESPONSIVE = "unresponsive"  # still down and not moving: possible medical emergency
+    MOVING = "moving"  # still down but moving: conscious, may still need help
+
+
+@dataclass(frozen=True)
+class PostFallAssessment:
+    """What happened after a FallEvent: judged once the person gets up, or
+    ASSESS_AFTER_S after they went down, whichever comes first."""
+
+    fall: FallEvent
+    outcome: Assessment
+    timestamp: float  # epoch seconds of the judgement
+    seconds_down: float
+    motion: float  # joint spread while down, body-heights

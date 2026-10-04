@@ -8,8 +8,10 @@ Full design and the code-terms glossary are in [`docs/dev1-cv-engine-plan.md`](.
 **Use Python 3.10–3.12.** Ultralytics 8.3.0 needs numpy < 2, which has no prebuilt wheels for
 Python 3.13+; pip then tries to compile numpy and fails with "Unknown compiler(s)" on Windows.
 On an Nvidia laptop, install the CUDA build of PyTorch before the requirements
-(`pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124`), otherwise
-pip installs the CPU-only build.
+(`pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128`), otherwise
+pip installs the CPU-only build. Check with
+`python -c "import torch; print(torch.__version__, torch.cuda.is_available())"`: the version should
+end in `+cu128` and print `True`. If not, the engine warns and runs on CPU.
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
@@ -44,6 +46,26 @@ python -m cv_engine.run --video cv_engine/tests/clips/fall_03.mp4 --loop   # bac
 python -m cv_engine.run --skeleton-only                      # privacy mode
 ```
 
+### Several cameras
+
+One process per camera. They share `cv_engine/.env` (API key, backend URL) and each gets its own
+id, zone, camera index and stream port:
+
+```bash
+python -m cv_engine.run --list-cameras      # find the indexes; the built-in webcam is often 0
+python -m cv_engine.run --camera-id zone-1-cam-1 --zone-id "Zone 1" --camera-index 1 --port 8001
+python -m cv_engine.run --camera-id zone-1-cam-2 --zone-id "Zone 1" --camera-index 2 --port 8002
+python -m cv_engine.run --camera-id corridor-cam-1 --zone-id "Forklift Corridor" --camera-index 1 --port 8001   # on a second laptop
+```
+
+**Phones as cameras.** Preferred: a USB webcam app (Iriun, DroidCam, Camo) so Windows sees the
+phone as a normal camera; use `--camera-index`. Over Wi-Fi: a camera app that serves a stream
+(e.g. Android "IP Webcam"), then `--camera-url http://<phone-ip>:8080/video`. Live cameras
+reconnect on their own if the phone drops out; `/health` shows `"camera": "reconnecting"` meanwhile.
+
+Webcams open at 640x480 so several fit in one laptop's USB bandwidth. Two cameras on one zone
+report the same fall twice; the backend's SMS cooldown must be per zone so only one text goes out.
+
 Preview window keys: `q` quit, `f` manual fall for the largest person (sent with `trigger: "manual"`).
 
 ## Tuning thresholds on recorded clips (GPU cluster or laptop)
@@ -55,6 +77,11 @@ Name clips so the label is in the file name: `fall_01.mp4` must trigger, anythin
 python -m cv_engine.eval_clips path/to/clips --device cuda           # pass/fail table
 python -m cv_engine.eval_clips path/to/clips --device cuda --sweep   # + best FallThresholds
 ```
+
+Share results without sharing videos: `--export cv_engine/tests/data/real_clips.json.gz` saves
+only the skeletons (joint positions over time, no images or faces). Commit that file and anyone
+can replay it with `--from-export ... --sweep`. The table also shows each clip's peak hip-drop
+speed, max torso angle and min height, which explains why a clip was missed or fired.
 
 Pose extraction (the GPU-heavy part) runs once per clip and is cached in `path/to/clips/.pose_cache`,
 so re-scoring and the 108-combination sweep take seconds. Keep clips and the cache out of the repo.
@@ -79,8 +106,10 @@ Fall thresholds live in `FallThresholds` in `config.py`.
 
 - Falls arrive at `POST /api/v1/telemetry` matching your `TelemetryEvent`, with a stable UUID
   `event_id` (resends come back `duplicate`) and `metadata.trigger` = `auto` or `manual`.
+- Post-fall outcomes arrive at `POST /api/v1/incidents/{event_id}/assessment`; `unresponsive`
+  sends an urgent text regardless of the cooldown (see backend/README.md).
 - Heartbeats are `event_type: "normal"` every 5s, which your backend ignores without storing.
-- Every confirmed fall scores `pose_confidence` ≥ 0.736, so keep `MIN_CONFIDENCE` at 0.7 or lower.
+- Every confirmed fall scores `pose_confidence` >= 0.736, so keep `MIN_CONFIDENCE` at 0.7 or lower.
 - Set the same `API_KEY` on both sides; a mismatch shows up as `backend rejected ... (check API_KEY)` in the CV log.
 
 ## For Dev 3 (dashboard)
