@@ -20,8 +20,8 @@ class Settings:
     twilio_token: str = ""
     twilio_from: str = ""
     sms_recipients: list[str] = field(default_factory=list)
-    gemini_key: str = ""
-    gemini_model: str = ""
+    ollama_url: str = "http://127.0.0.1:11434"
+    ollama_model: str = "qwen2.5:3b"
     min_confidence: float = 0.7
     cooldown_seconds: int = 30
 
@@ -43,8 +43,8 @@ class Settings:
             twilio_token=os.getenv("TWILIO_AUTH_TOKEN", ""),
             twilio_from=os.getenv("TWILIO_FROM_NUMBER", ""),
             sms_recipients=csv("SMS_RECIPIENTS"),
-            gemini_key=os.getenv("GEMINI_API_KEY", ""),
-            gemini_model=os.getenv("GEMINI_MODEL", ""),
+            ollama_url=os.getenv("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/"),
+            ollama_model=os.getenv("OLLAMA_MODEL", "qwen2.5:3b"),
             min_confidence=float(os.getenv("MIN_CONFIDENCE", "0.7")),
             cooldown_seconds=int(os.getenv("ALERT_COOLDOWN_SECONDS", "30")),
         )
@@ -60,8 +60,10 @@ class Settings:
             raise ValueError("SMS_MODE must be dry_run or twilio")
         if self.sms_mode == "twilio" and not all([self.api_key, self.twilio_sid, self.twilio_token, self.twilio_from, self.sms_recipients]):
             raise ValueError("Live SMS requires API_KEY, Twilio credentials, sender, and recipients")
-        if self.gemini_key and not (self.gemini_model and self.api_key):
-            raise ValueError("Gemini requires GEMINI_MODEL and API_KEY")
+        if not self.ollama_url.startswith(("http://", "https://")):
+            raise ValueError("OLLAMA_URL must be an HTTP(S) URL")
+        if not self.ollama_model.strip():
+            raise ValueError("OLLAMA_MODEL must not be empty")
         if not 0 <= self.min_confidence <= 1 or self.cooldown_seconds < 0:
             raise ValueError("Invalid confidence threshold or cooldown")
         from app.schemas import SMSAlert
