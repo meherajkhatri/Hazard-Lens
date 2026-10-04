@@ -51,6 +51,7 @@ def test_fall_payload_matches_backend_contract():
     assert m["track_id"] == 3
     assert m["latency_ms"] == 1252
     assert m["trigger"] == "auto"
+    assert m["detection"] == "seen_drop"
     assert m["snapshot_url"] == f"http://10.0.0.5:8001/snapshot/{eid}.jpg"
 
 

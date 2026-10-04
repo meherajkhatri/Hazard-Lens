@@ -54,6 +54,18 @@ class FallThresholds:
     # Forget tracks not seen for this long.
     TRACK_TTL_S: float = 3.0
 
+    # Falls that happen out of view (person hidden, or the tracker changes their ID):
+    # a person who was upright, was unusable for at least UNSEEN_DROP_GAP_S, and
+    # reappears down within UNSEEN_DROP_MAX_S of last being upright is treated as
+    # falling (the 1s DOWN_CONFIRM_S still applies).
+    UNSEEN_DROP_GAP_S: float = 0.3
+    UNSEEN_DROP_MAX_S: float = 2.0
+    # A new track ID inherits a lost track's history if it appears within this time
+    # of the loss and within HANDOVER_DIST_RATIO x that person's height of where
+    # they were last seen.
+    HANDOVER_MAX_S: float = 2.0
+    HANDOVER_DIST_RATIO: float = 1.0
+
     # Post-fall check: how long after DOWN to judge a person who is still down,
     # and how much their joints may move (spread, in body-heights) to count as still.
     ASSESS_AFTER_S: float = 10.0

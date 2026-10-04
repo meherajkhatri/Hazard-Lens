@@ -52,6 +52,9 @@ class FallEvent:
     keypoint_conf: float
     bbox: BBox
     manual: bool = False  # True when raised with the F key, not by detection
+    # How the fall was established: "seen_drop" (the drop was watched), "unseen_drop"
+    # (person vanished upright and reappeared down) or "found_down" (lying, fall not seen).
+    detection: str = "seen_drop"
 
 
 class Assessment(str, Enum):
