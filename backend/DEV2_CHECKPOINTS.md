@@ -56,6 +56,14 @@ do not label this as a delivered alert. The dispatcher now records the non-sensi
 failed result, while excluding raw provider messages that may contain phone numbers. Upgrade the account
 or configure an approved template before retrying live delivery. SMS delivery remains an open acceptance item.
 
+Brevo transactional-email fallback PASSED on October 3. The backend authenticated to Brevo SMTP after
+the backend machine IP was authorized, then submitted a labeled rehearsal email through
+`POST /api/v1/alerts/email` using the verified `HazardLens <ajohal@kent.edu>` sender. Brevo accepted
+the message as `queued`, and the configured recipient confirmed inbox delivery. Automatic fall alerts can
+therefore use `ALERT_PROVIDER=brevo_email`; their results are explicitly marked `channel: email` while
+the legacy `sms_status` field remains for frontend compatibility. This is a verified email fallback, not
+proof of SMS or phone delivery.
+
 Rehearsal handoff: local `MIN_CONFIDENCE=0.7`, `ALERT_COOLDOWN_SECONDS=0`; an identical copy of
 the backend API key is prepared in ignored `backend/data/dev1.env` for private transfer to Dev 1.
 The user will deliver the key privately to Dev 1. The public template keeps its default cooldown of 30 seconds.

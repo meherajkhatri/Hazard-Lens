@@ -49,6 +49,12 @@ class SMSAlert(BaseModel):
     message: str = Field(min_length=1, max_length=1000)
 
 
+class EmailAlert(BaseModel):
+    recipient: str = Field(pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+    subject: str = Field(min_length=1, max_length=200)
+    message: str = Field(min_length=1, max_length=10_000)
+
+
 class CoachRequest(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
     question: str = Field(min_length=1, max_length=2000)
