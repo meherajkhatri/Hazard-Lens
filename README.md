@@ -76,6 +76,12 @@ python -m cv_engine.run --list-cameras
 For network cameras, replace `--camera-index N` with
 `--camera-url http://camera-address/stream`. Each process recognizes people
 and falls independently and sends incidents with its own `camera_id`.
+To run several workers under one supervisor, create private files from
+`cameras/camera-1.env.example` and `cameras/camera-2.env.example`, then run:
+
+```bash
+python tools/run_cameras.py --env-file cameras/camera-1.env --env-file cameras/camera-2.env
+```
 
 ### Terminal 3: Frontend
 
@@ -107,6 +113,10 @@ Open `http://localhost:3000`. Stop services with `Control + C` in each terminal.
 - For existing Supabase data, run `backend/supabase/migrate_alerts.sql` once.
 - Keep credentials out of `NEXT_PUBLIC_*` variables and do not expose this
   unauthenticated prototype directly to the public internet.
+- The API uses a shared server-side API key. Put Caddy or Nginx in front of the
+  frontend for HTTPS; `deploy/Caddyfile.example` provides a starting point.
+  Keep backend and CV ports private.
+- Back up SQLite data and incident snapshots with `tools/backup_data.sh`.
 
 ## Optional Safety Coach
 

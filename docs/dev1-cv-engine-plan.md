@@ -14,7 +14,7 @@
 | Where the code lives | New top-level **`cv_engine/`** process, run on Dev 1's GPU laptop | It's an edge agent, not part of the API. Keeps torch/ultralytics out of Dev 2's backend install, and Dev 1 never blocks on backend merges. |
 | Transport to backend | **HTTP `POST /api/v1/telemetry`** (already stubbed) | No WebSocket client needed on the CV side. Backend fans out to the dashboard via its own WS. Fewer moving parts. |
 | Video to dashboard | **CV engine serves an MJPEG stream** (`http://<dev1-ip>:8001/stream`) with the skeleton drawn on it | Only one process can open the webcam. If the frontend tries to grab the camera too, one of them fails. Dashboard just uses `<img src=".../stream">`. |
-| Fall logic | **Multi-signal + state machine + cooldown** (not just `w/h > 1.5`) | Aspect ratio alone fires when someone crouches, ties a shoe, or bends over, and fires every frame while they lie there, which spams SMS. |
+| Fall logic | **Multi-signal + state machine + cooldown** (not just `w/h > 1.5`) | aspect ratio alone fires when someone crouches, ties a shoe, or bends over, and fires every frame while they lie there, which spams alerts. |
 | Payload | **Match the existing `TelemetryEvent` schema** in `backend/app/schemas.py` | The schema already exists. Don't invent a second contract (`zone_id` / `pose_event` / `confidence_score` from the plan doc get mapped into it; see §4). |
 
 ---
@@ -131,15 +131,15 @@ POST /api/v1/telemetry          (header X-API-Key: <API_KEY> when the backend se
 }
 ```
 
-- **`event_id`** is a UUID derived from `CAMERA_ID`, `track_id` and the fall's timestamp. A resend of the same fall gets the same ID, so the backend answers `duplicate` instead of creating a second incident or SMS. It is also the incident ID and the snapshot file name.
+- **`event_id`** is a UUID derived from `CAMERA_ID`, `track_id` and the fall's timestamp. A resend of the same fall gets the same ID, so the backend answers `duplicate` instead of creating a second incident or email. It is also the incident ID and the snapshot file name.
 - **`latency_ms`** = time from the start of the drop to the moment the event is sent.
 - **`trigger`** is `"auto"` for a detected fall and `"manual"` for the `F`-key backup, so the logs never pass a manual trigger off as a detection.
 - **Rules:** `pose_confidence` in [0, 1]; `metadata` at most 20 keys, values flat `str | int | float | bool` (no `null`, no nested objects or lists).
 
 **Backend behaviour the CV engine relies on:**
 - `MIN_CONFIDENCE` (default 0.7): lower scores return `200 {"status": "ignored"}` and are not stored. Every confirmed fall scores ≥ 0.736 (see §3), and the emitter logs an error and counts it in `rejected` if a fall is ever ignored or refused.
-- `ALERT_COOLDOWN_SECONDS` (default 30) suppresses repeat **SMS** per camera + zone; the incident is still recorded. In rehearsals, falls less than 30s apart send only one SMS.
-- A fall's HTTP response waits for the SMS submission, so the emitter allows 15s per fall request (2s for heartbeats).
+- `ALERT_COOLDOWN_SECONDS` (default 30) suppresses repeat email alerts per camera + track; the incident is still recorded.
+- A fall's HTTP response may wait for email submission, so the emitter allows 15s per fall request (2s for heartbeats).
 
 **Heartbeat:** every 5s, `event_type: "normal"` with `pose_confidence: 0.0` and `metadata {heartbeat: true, fps, people_detected}`. The backend acknowledges it without storing it. The dashboard's "Camera online · 28 FPS" comes from the stream's `GET :8001/health`, not from the backend.
 
@@ -155,7 +155,7 @@ POST /api/v1/telemetry          (header X-API-Key: <API_KEY> when the backend se
 | **4–7** | `types.py` + `features.py` + `fall_state.py` with unit tests. Add a `--video` flag so it runs on clips. Tune thresholds against the clips, not live. | All 10 falls trigger, **0** false alarms on the other 20. |
 | **7–9** | `streamer.py`: MJPEG on `:8001/stream`, plus `/snapshot/<event_id>.jpg` and `/health`. Box colors by `FallState`: green = `UPRIGHT`, amber = `FALLING`, red = `DOWN`. | Dev 3 can embed the stream from another laptop on venue Wi-Fi. |
 | **9–10** | `emitter.py`: POST with 2 retries, in-memory queue if the backend is down, heartbeat thread. | Fall shows up in `GET /api/v1/incidents`. |
-| **10–14** | **Integration with Dev 2 + Dev 3.** Measure end-to-end latency (fall → dashboard red → phone SMS). | Full chain works 5/5 times, p95 < 2s to dashboard. |
+| **10–14** | **Integration with Dev 2 + Dev 3.** Measure end-to-end latency (fall → dashboard red → email alert). | Full chain works 5/5 times, p95 < 2s to dashboard. |
 | **14–16** | Hardening: re-tune under **venue lighting**, a second person walking through frame, partial occlusion, the camera bumped slightly. | Still 0 false alarms with 2 people in frame. |
 | **16+** | **Code freeze.** Only threshold tweaks. Rehearse the fall 10+ times on the actual demo spot. Record the backup video. | Team has a 60s backup clip. |
 

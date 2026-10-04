@@ -5,6 +5,10 @@ to the next stage, except for explicit user-approved deferrals recorded below.
 Existing code and mocked tests are not proof of live integration.
 Updated October 3, 2026.
 
+> Historical note: older entries mention SMS/Twilio because that was an
+> earlier implementation. The current product uses generic alerts with
+> optional Brevo email; those provider tests are not active.
+
 ## Hours 0–3 — PASSED
 
 | Requirement | Evidence | Status |

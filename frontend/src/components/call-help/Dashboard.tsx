@@ -15,6 +15,7 @@ export default function Dashboard() {
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [showAllCameras, setShowAllCameras] = useState(false);
+  const [disabledCameras, setDisabledCameras] = useState<Set<string>>(new Set());
   const selectedZone = selection?.zoneId || cameras[0]?.zone || process.env.NEXT_PUBLIC_CAMERA_ZONE || "Zone 1";
   const selectedCameraId = showAllCameras ? null : selection ? selection.cameraId : cameras[0]?.id || null;
   const focusIncident = (row: Incident) => setSelection({ zoneId: row.zone_id, cameraId: row.camera_id, incidentId: row.incident_id });
@@ -143,8 +144,8 @@ export default function Dashboard() {
       <div className={`primary-grid ${showAllCameras ? "all-cameras-mode" : ""}`}>
         <div className="camera-wall" aria-label={showAllCameras ? "All camera feeds" : "Selected camera feed"}>
           {showAllCameras
-            ? cameras.map(camera => <LiveCameraPanel key={camera.id} zone={{ id: camera.zone, name: camera.zone, status: "normal", incidentsToday: 0 }} cameraId={camera.id} incident={incidents.find(row => row.camera_id === camera.id && row.status !== "resolved")} />)
-            : <LiveCameraPanel key={selectedCameraId || "no-camera"} zone={zone} cameraId={selectedCameraId} incident={activeIncident}/>}
+            ? cameras.map(camera => <LiveCameraPanel key={camera.id} zone={{ id: camera.zone, name: camera.zone, status: "normal", incidentsToday: 0 }} cameraId={camera.id} enabled={!disabledCameras.has(camera.id)} onToggle={() => setDisabledCameras(current => { const next = new Set(current); if (next.has(camera.id)) next.delete(camera.id); else next.add(camera.id); return next; })} incident={incidents.find(row => row.camera_id === camera.id && row.status !== "resolved")} />)
+            : <LiveCameraPanel key={selectedCameraId || "no-camera"} zone={zone} cameraId={selectedCameraId} incident={activeIncident} enabled={!selectedCameraId || !disabledCameras.has(selectedCameraId)} onToggle={selectedCameraId ? () => setDisabledCameras(current => { const next = new Set(current); if (next.has(selectedCameraId)) next.delete(selectedCameraId); else next.add(selectedCameraId); return next; }) : undefined}/>}
         </div>
         <ActiveIncidentCard incident={activeIncident} pending={pending} onAcknowledge={() => activeIncident && void changeStatus(activeIncident.incident_id, "acknowledged")} onCamera={() => { if (activeIncident) { setShowAllCameras(false); focusIncident(activeIncident); } document.getElementById("live-camera")?.scrollIntoView({ behavior: "smooth" }); }}/>
       </div>

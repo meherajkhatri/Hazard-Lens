@@ -1,215 +1,51 @@
 # Hazard Lens backend
 
-FastAPI provides incident ingestion, persistence, live dashboard events, fall SMS alerts,
-and a Gemini Safety Coach. Camera inference and video streaming belong to the CV module;
-this API accepts event JSON, not video frames. The existing frontend still uses sample data.
+The FastAPI service accepts camera telemetry, stores incidents, broadcasts live
+updates to the dashboard, sends optional Brevo email alerts, and provides the
+optional Safety Coach. Video capture and inference run in `cv_engine`.
 
-See [Dev 2 checkpoints](DEV2_CHECKPOINTS.md) for the sequential verification gates and live setup probe.
-After configuring Supabase, `python -m app.verify_ingestion` exercises the actual FastAPI routes
-in-process against the live database, retains a labeled resolved test incident, and always forces SMS
-dry-run. It checks ingestion, retry handling, acknowledgement/resolution, and persistence across app restart.
-This verifies the API/database path, not delivery of a real SMS or the network listener.
+## Local development
 
-`python -m app.verify_realtime` starts a temporary localhost Uvicorn server and connects real
-camera/dashboard WebSocket clients. It verifies authentication, invalid messages, fall broadcast,
-retry deduplication, reconnect + REST resync, Coach retrieval, and resolution updates using configured
-storage. It retains a labeled resolved probe incident, reports one observed broadcast latency, and
-always forces dry-run SMS and the local Coach summary. This is a backend integration probe, not
-proof of the team's physical camera, frontend UI, live Gemini, or SMS delivery. It stops its server on exit.
+From `backend/`:
 
-For live Gemini acceptance, configure `GEMINI_API_KEY` and `GEMINI_MODEL`, then run
-`python -m app.verify_coach`. It creates and resolves one labeled simulated incident, makes two
-Gemini requests (the incident's zone and an empty zone), checks source IDs/citation and live mode,
-and prints both answers for factual review. It always disables SMS. Missing credentials return
-`blocked`; mocked tests do not count as live acceptance. Simulated records are explicitly labeled
-in the model context; blocked, truncated, or malformed provider answers return HTTP 502.
-
-To verify Dev 1's actual sender, install `requirements-integration.txt` in the backend virtual environment,
-then run `python -m app.verify_cv_integration` from `backend/`. This imports the merged
-`cv_engine.transport.emitter.TelemetryEmitter`, sends a synthetic `FallEvent` through its real REST
-queue, and verifies the dashboard WebSocket broadcast, duplicate replay, heartbeat handling, and
-preserved snapshot URL/metadata against configured storage. It forces dry-run SMS and resolves the
-retained probe incident. No GPU, camera access, model download, or video recording is needed.
-Run the combined suite with `python -m pytest -q tests ../cv_engine/tests/test_emitter.py`.
-
-Dev 1's current engine uses `POST /api/v1/telemetry` with `X-API-Key`; the dashboard receives
-`/ws/incidents` events. Camera WebSocket ingestion also exists, but no CV transport rewrite is required.
-For physical rehearsal, Dev 1 sets `BACKEND_URL` to the backend laptop's LAN address and copies the
-matching `API_KEY` into `cv_engine/.env`, then restarts the CV process. Verify one manual trigger first,
-then a safely staged detection, and confirm the dashboard incident ID and database record match.
-
-## Run locally (Python 3.12)
-
-From `backend/`, in PowerShell:
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
-Copy-Item .env.example .env
-.\.venv\Scripts\python.exe -m app.seed
-.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000 --ws-max-size 65536
+```bash
+../.venv/bin/python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+../.venv/bin/python -m pytest -q
 ```
 
-On macOS/Linux use `.venv/bin/python` in place of `.\.venv\Scripts\python.exe`.
-The tested dependency snapshot is `requirements-lock.txt`; install it for exact versions.
-Camera dependencies are separate in `requirements-cv.txt` and are not needed on the API server.
+Use `STORAGE_BACKEND=sqlite` and `ALERT_PROVIDER=none` for offline development.
+Set `API_KEY` before allowing network access. The frontend proxy and each CV
+worker must use the same server-side key.
 
-Open http://127.0.0.1:8000/docs for the interactive API. SQLite persists records in
-`backend/data/call_help.sqlite3` when launched from this directory. `.env` and data are ignored by Git.
-The seed command adds 18 labeled simulated incidents across Zone 1, Zone 2, and Forklift Corridor.
-It is idempotent, never sends SMS, and does not update dates when run again.
+## Supabase
 
-In a second terminal, from `backend/`:
+Run `supabase/schema.sql` for a new database. For an existing incidents table,
+run `supabase/migrate_alerts.sql` once in the Supabase SQL editor, then set
+`STORAGE_BACKEND=supabase`, `SUPABASE_URL`, and `SUPABASE_SECRET_KEY`.
+The elevated Supabase key belongs only in the backend environment.
 
-```powershell
-.\.venv\Scripts\python.exe -m app.simulate
-.\.venv\Scripts\python.exe -m pytest -q
+## Alerts
+
+Set `ALERT_PROVIDER=brevo_email` and configure the Brevo SMTP login, SMTP key,
+verified sender, and recipients. Automatic email is sent only when confidence
+is strictly above `ALERT_MIN_CONFIDENCE` (default `0.9`). Use
+`POST /api/v1/alerts/email` only for a configured-recipient test.
+Verification scripts disable external alerts and do not prove live delivery.
+
+## Verification
+
+```bash
+../.venv/bin/python -m app.verify_ingestion
+../.venv/bin/python -m app.verify_realtime
+../.venv/bin/python -m app.verify_cv_integration
 ```
 
-The simulator refuses a server using live SMS unless given `--allow-live-sms`.
+These probes use labeled temporary incidents, check persistence, authentication,
+deduplication, WebSocket broadcasts, and CV telemetry. They do not replace
+physical camera, live email, or production deployment acceptance tests.
 
-## Configuration and providers
+## Production notes
 
-- Local defaults: SQLite, SMS dry-run, and a deterministic Coach count summary.
-- Set `API_KEY` before allowing network access. REST clients send `X-API-Key`.
-  This is a shared key for a trusted hackathon team, not end-user accounts or role-based authorization.
-  All API key holders can read/update incidents and invoke providers. Add identity, authorization,
-  request limits, and audit logging before a public deployment. Use HTTPS/WSS beyond localhost.
-- `CORS_ORIGINS` is a comma-separated list of exact dashboard origins.
-- Supabase: run `supabase/schema.sql` in its SQL editor, then set `STORAGE_BACKEND=supabase`,
-  `SUPABASE_URL`, and `SUPABASE_SECRET_KEY` to a server secret (`sb_secret_...`) or legacy service-role JWT.
-  RLS is enabled with no browser policies; only the backend uses the elevated key.
-  Switching storage does not migrate local SQLite records.
-- Twilio: set `SMS_MODE=twilio`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`,
-  `TWILIO_FROM_NUMBER`, and comma-separated `SMS_RECIPIENTS` in E.164 format.
-  Live mode requires `API_KEY`. The manual SMS endpoint accepts only configured recipients.
-  Trial-account recipient restrictions still apply; configure recipients in Twilio.
-- WhatsApp instead of SMS: `SMS_CHANNEL=whatsapp` sends through the Twilio WhatsApp sandbox
-  (`TWILIO_FROM_NUMBER` = the sandbox number). Each recipient phone must first send the sandbox's
-  "join <code>" message. Free-form text is allowed, unlike trial SMS (error 572006).
-- Brevo email fallback: set `ALERT_PROVIDER=brevo_email`, `BREVO_SMTP_LOGIN`, `BREVO_SMTP_KEY`,
-  `BREVO_FROM_EMAIL`, and comma-separated `BREVO_RECIPIENTS`. Brevo requires a verified sender;
-  `BREVO_SMTP_LOGIN` is its technical login and must not be used as the sender address. Automatic fall
-  alerts are delivered as email and saved with `channel: email`, even though the legacy incident field
-  remains named `sms_status` for frontend compatibility. Use `POST /api/v1/alerts/email` to send a
-  configured-recipient test message.
-- Gemini: set `GEMINI_API_KEY`, `GEMINI_MODEL` to an available `generateContent` model,
-  and `API_KEY`. The Coach retrieves at most 50 recent matching incidents and includes IDs in its response.
-  This is structured database retrieval, not vector search. Use explicit `zone_id`, `since`, and `until`
-  for reliable scoping. Times are timezone-aware; use explicit boundaries for “today”.
-  Without a Gemini key the response says `mode: local_summary`; provider errors return 502.
-
-Provider credentials stay in `.env` on the server. Do not put them in frontend environment variables.
-
-## CV event contract
-
-`POST /api/v1/telemetry` or send the same JSON to `/ws/telemetry`:
-
-```json
-{
-  "event_id": "7eef8dce-69c1-4fd0-88a7-adb560b14934",
-  "camera_id": "webcam-1",
-  "zone_id": "Zone 1",
-  "timestamp": "2026-10-03T19:00:00Z",
-  "pose_event": "fall",
-  "confidence_score": 0.96,
-  "metadata": {"track_id": "person-1"}
-}
-```
-
-`event_type` and `pose_confidence` are accepted aliases for the original scaffold contract.
-`zone_id` is now required. Event types: `fall`, `ppe_violation`, `collision_risk`, `normal`.
-Timestamps must include a timezone. Confidence must be between 0 and 1.
-Normal events and confidence below `MIN_CONFIDENCE` (default 0.7) return `ignored` without storage.
-
-Send **one event per detected episode**, not one per video frame. Reuse the same UUID and payload
-on retries. Identical qualifying events return `duplicate`, with no second incident or SMS.
-Reusing an ID with different telemetry returns 409. If no ID is supplied, a deterministic ID is derived
-from the normalized payload; a changed timestamp represents a new event.
-
-Each qualifying event is persisted and broadcast. Only falls trigger automatic SMS.
-`ALERT_COOLDOWN_SECONDS` (default 30) suppresses repeat alerts for the same person/event, while every
-incident is still stored and broadcast. The CV sender's `track_id` makes two people on one camera alert
-independently. For the same person seen by multiple cameras, send the same optional
-`metadata.alert_group_id` from each feed to produce one alert; without it, each camera alerts
-independently to avoid hiding a possible second fallen worker. Post-fall `unresponsive` escalation
-bypasses the cooldown.
-
-### Dev 1 handoff and rehearsal
-
-Keep `MIN_CONFIDENCE=0.7` (or a deliberately agreed lower threshold). Events at exactly 0.7
-are accepted; below-threshold events return `ignored`, whereas a wrong API key returns 401
-over REST or closes the WebSocket with code 1008. A CV log saying `check API_KEY` means to
-compare the CV `API_KEY` with the backend's `API_KEY`, not the Supabase server key.
-
-The local rehearsal configuration uses `ALERT_COOLDOWN_SECONDS=0`. Restart the running backend
-after changing `.env`. Each rehearsal fall must use a new `event_id`; retries must keep the
-original ID and payload and will still be deduplicated. With the default 30-second cooldown,
-two distinct falls in the same camera/zone less than 30 seconds apart are both logged but
-only the first attempts SMS. Restore 30 after rehearsal if that is the team's desired alert policy.
-
-The matching Dev 1 key is provided locally in ignored `backend/data/dev1.env`. Transfer it privately
-to Dev 1 and copy `API_KEY` into the CV environment; never commit or send the full backend `.env`.
-REST sends it as `X-API-Key`; WebSockets send `{"api_key":"..."}` immediately after connecting.
-Dev 1 also needs the backend laptop's reachable address: `http://<backend-LAN-IP>:8000` for REST,
-or `ws://<backend-LAN-IP>:8000/ws/telemetry` for WebSockets. `localhost` on Dev 1's laptop points
-to Dev 1's machine. For the trusted rehearsal LAN, run Uvicorn with `--host 0.0.0.0` and allow
-the app through the local firewall as needed. No network exposure is enabled automatically here.
-SMS remains dry-run until Twilio is configured and enabled; disabling cooldown does not enable SMS.
-
-SMS results are persisted as `dry_run`, `not_configured`, `cooldown`, `pending`, a provider status such
-as `queued`, `failed`, `unknown`, or `partial`. A queued message is not proof of delivery. A timeout is
-`unknown` because the provider may have accepted the message. No automatic retries or delivery callbacks
-are implemented. The API response waits for SMS submission; the first WebSocket event is published earlier.
-
-## REST routes
-
-| Method | Path | Purpose |
-| --- | --- | --- |
-| GET | `/health` | Process health and configured modes; public, no credentials returned |
-| GET | `/api/v1/ready` | Verify storage is reachable |
-| POST | `/api/v1/telemetry` | Create a qualifying incident and dispatch fall alert |
-| GET | `/api/v1/incidents` | Newest first; `zone_id`, `status`, `since`, `until`, `limit` (1–500), `offset` |
-| GET | `/api/v1/incidents/{id}` | Retrieve one incident |
-| PATCH | `/api/v1/incidents/{id}` | `{"status":"acknowledged"}` or `{"status":"resolved"}` |
-| POST | `/api/v1/incidents/{id}/assessment` | Camera's post-fall outcome: `{"outcome":"unresponsive"\|"moving"\|"recovered", "seconds_down", "motion", "observed_at", "camera_id", "zone_id"}` |
-| POST | `/api/v1/alerts/sms` | Manual alert to an allowlisted recipient; not idempotent |
-| POST | `/api/v1/coach/chat` | `{"question":"Summarize risks", "zone_id":"Zone 1"}`; optional `since`, `until` |
-
-Resolved incidents cannot be reopened. List results include all statuses unless filtered.
-
-Post-fall assessment: the outcome is stored in the incident's `metadata.assessment`, the description
-says what happened, and `incident.updated` is broadcast. `unresponsive` sends an URGENT text to all
-recipients regardless of the cooldown; `recovered` after `unresponsive` sends an update; `moving`
-and a quick recovery are recorded only. Repeating the same outcome sends nothing.
-
-## WebSocket integration
-
-Use `/ws/incidents` for dashboard notifications and `/ws/telemetry` for camera ingestion.
-When `API_KEY` is configured, send `{"api_key":"..."}` as the first message within five seconds.
-Keys are not sent in query strings. Wait for `{"type":"connected"}` before sending telemetry.
-If the key is empty, the server sends `connected` immediately. Browser origins must be allowlisted.
-
-Dashboard events are `{"type":"incident.created", "incident":{...}}` and
-`{"type":"incident.updated", "incident":{...}}`. Upsert by `incident_id`; play the alert chime
-only on `incident.created`. Video overlays and chimes remain frontend/CV responsibilities.
-Camera acknowledgements use `type: telemetry.result` and `status: received|duplicate|ignored`.
-Validation and storage failures use `type: error` with numeric `status` and a `detail` string.
-
-There is no event replay. After `connected`, fetch incidents through REST, merge buffered events by ID,
-and refresh on reconnect. Slow clients are disconnected with code 1013 and must resync.
-
-## Current operating limits
-
-Run **one Uvicorn worker / one server instance**: live broadcasts and the cooldown lock are process-local.
-Incident IDs are unique in storage, but multi-instance alert cooldowns need database locking and a shared broker.
-The SMS flow is not a durable task queue: a crash after incident insertion can leave `pending` status.
-Inspect those records before any manual resend; this implementation does not guarantee delivery.
-The system is a hackathon prototype and does not contact emergency services automatically.
-
-Tests exercise SQLite persistence, validation, auth, WebSockets, cooldown/deduplication,
-seed data, and mocked provider contracts. Real Supabase, Twilio, and Gemini checks require your configured accounts.
-
-Official provider references: [Supabase Data API](https://supabase.com/docs/guides/api/quickstart),
-[Twilio Messages](https://www.twilio.com/docs/messaging/api/message-resource),
-[Gemini generateContent](https://ai.google.dev/api/generate-content).
+Use HTTPS/WSS through the reverse proxy configuration in `../deploy/`, keep
+backend and CV ports private, rotate API/provider keys, and back up SQLite data
+and incident snapshots with `../tools/backup_data.sh`.

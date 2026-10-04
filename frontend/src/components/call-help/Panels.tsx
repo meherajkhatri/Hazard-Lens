@@ -11,7 +11,7 @@ export function StatusBadge({ status, children }: { status: string; children?: R
 export function TopNav({ connection, onNotifications }: { connection: string; onNotifications: () => void }) {
   return <header className="top-nav"><div className="brand"><div className="brand-icon"><Activity size={24}/></div><div><div className="brand-name">HAZARD<span> LENS</span></div><div className="brand-tagline">Industrial Transit Safety</div></div></div><div className="nav-right"><span className="small-label">{connection}</span><button className="icon-button" aria-label="View notifications" onClick={onNotifications}><Bell size={19}/></button></div></header>;
 }
-export function LiveCameraPanel({ zone, cameraId, incident }: { zone: Zone; cameraId: string | null; incident?: Incident }) {
+export function LiveCameraPanel({ zone, cameraId, incident, enabled = true, onToggle }: { zone: Zone; cameraId: string | null; incident?: Incident; enabled?: boolean; onToggle?: () => void }) {
   const [expanded, setExpanded] = useState(false);
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -51,8 +51,9 @@ export function LiveCameraPanel({ zone, cameraId, incident }: { zone: Zone; came
     const timer = setInterval(() => void check(), 3000);
     return () => { disposed = true; clearInterval(timer); };
   }, [healthUrl]);
-  return <section className={`panel camera-panel ${expanded ? "camera-expanded" : ""}`} id="live-camera">
-    <div className="panel-heading"><div><h2><Video size={15}/> CAMERA MONITORING</h2><p><MapPin size={12}/>{zone.name}{cameraId ? ` · ${cameraId}` : ""}</p></div><button className="icon-button" aria-label={expanded ? "Exit expanded camera" : "Expand camera"} onClick={() => setExpanded(!expanded)}>{expanded ? <X size={17}/> : <Expand size={16}/>}</button></div>
+  return <section className={`panel camera-panel ${expanded ? "camera-expanded" : ""} ${!enabled ? "camera-disabled" : ""}`} id="live-camera">
+    <div className="panel-heading"><div><h2><Video size={15}/> CAMERA MONITORING</h2><p><MapPin size={12}/>{zone.name}{cameraId ? ` · ${cameraId}` : ""}</p></div><div className="camera-panel-actions">{onToggle && <button className="button secondary camera-toggle" onClick={onToggle} aria-pressed={enabled}>{enabled ? "Disable" : "Enable"}</button>}{enabled && <button className="icon-button" aria-label={expanded ? "Exit expanded camera" : "Expand camera"} onClick={() => setExpanded(!expanded)}>{expanded ? <X size={17}/> : <Expand size={16}/>}</button>}</div></div>
+    {!enabled ? <div className="camera-placeholder"><Video size={36}/><p>Camera monitoring disabled</p></div> : <>
     <div className="camera-view">
       {source && !failed ? <>
         {/* MJPEG is a continuous response and must use a native image element. */}
@@ -60,7 +61,7 @@ export function LiveCameraPanel({ zone, cameraId, incident }: { zone: Zone; came
         <img key={`${cameraId || "camera"}-${source}-${attempt}`} src={source} alt={`${showingSnapshot ? "Incident snapshot" : "Annotated CV feed"} for ${cameraId || zone.name}`} className="live-stream" onLoad={() => setLoaded(true)} onError={() => { if (!showingSnapshot && snapshot) setStreamFailed(true); else setFailed(true); setLoaded(false); }}/>
         <span className="scene-label">{loaded ? (showingSnapshot ? "Incident snapshot · not live" : "Live CV camera stream") : "Connecting to camera…"}</span>
       </> : <div className="camera-placeholder"><Video size={36}/><p>{failed ? "Camera feed unavailable" : "No camera feed configured for this incident"}</p>{failed && <button className="button secondary" onClick={() => { setStreamFailed(false); setFailed(false); setLoaded(false); setAttempt(n => n + 1); }}>Reconnect camera</button>}</div>}
-    </div><div className="camera-controls"><div className="vision-status"><ScanLine size={15}/><span>{showingSnapshot ? "Showing the saved incident frame" : cvStatus === "connected" ? `CV engine connected${cvPeople !== null ? ` · ${cvPeople} people detected` : ""}` : cvStatus === "offline" ? "CV engine offline — start cv_engine.run" : "Checking CV engine…"}</span>{streamFailed && snapshot && <button className="button secondary" onClick={() => { setStreamFailed(false); setFailed(false); setLoaded(false); setAttempt(n => n + 1); }}>Retry live camera</button>}</div></div>
+    </div><div className="camera-controls"><div className="vision-status"><ScanLine size={15}/><span>{showingSnapshot ? "Showing the saved incident frame" : cvStatus === "connected" ? `CV engine connected${cvPeople !== null ? ` · ${cvPeople} people detected` : ""}` : cvStatus === "offline" ? "CV engine offline — start cv_engine.run" : "Checking CV engine…"}</span>{streamFailed && snapshot && <button className="button secondary" onClick={() => { setStreamFailed(false); setFailed(false); setLoaded(false); setAttempt(n => n + 1); }}>Retry live camera</button>}</div></div></>}
   </section>;
 }
 export function ActiveIncidentCard({ incident, pending, onAcknowledge, onCamera }: { incident?: Incident; pending: boolean; onAcknowledge: () => void; onCamera: () => void }) {
