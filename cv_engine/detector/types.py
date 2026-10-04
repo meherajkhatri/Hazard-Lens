@@ -29,7 +29,7 @@ class PoseFeatures:
     bbox_aspect: float  # bbox width / height
     body_scale: float  # shoulder-mid -> ankle-mid distance, pixels
     hip_y: float  # hip-mid y, pixels (grows downward)
-    keypoint_conf: float  # lowest conf among shoulders + hips
+    keypoint_conf: float  # min(best shoulder conf, best hip conf)
 
 
 class FallState(str, Enum):
