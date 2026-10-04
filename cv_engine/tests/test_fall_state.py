@@ -21,6 +21,7 @@ class Scene:
         self.t = 0.0
         self.hip_y = STAND_HIP_Y
         self.angle = 0.0
+        self.squash = 1.0
         self.events = []
 
     def move(self, seconds: float, hip_y: float | None = None, angle: float | None = None, **pose_kw):
@@ -178,3 +179,156 @@ def test_weakest_confirmable_fall_clears_backend_min_confidence():
 
 def test_manual_event_has_full_confidence():
     assert FallDetector().force_event(make_pose(), now=1.0).pose_confidence == 1.0
+
+
+# --- post-fall check ---------------------------------------------------------
+
+import math
+
+import numpy as np
+
+from cv_engine.detector.fall_state import joint_spread
+from cv_engine.detector.types import Assessment
+
+
+def lie(scene: Scene, seconds: float, sway_px: float = 0.0, jitter_px: float = 2.0, seed: int = 0) -> Scene:
+    """Hold the fallen pose: `sway_px` = deliberate movement, `jitter_px` = model noise."""
+    rng = np.random.default_rng(seed)
+    for i in range(int(seconds * FPS)):
+        scene.t += 1 / FPS
+        pose = make_pose(scene.track_id, hip_y=scene.hip_y, angle_deg=scene.angle,
+                         hip_x=320 + sway_px * math.sin(scene.t * 4))
+        pose.keypoints[:, :2] += rng.normal(0, jitter_px, (17, 2))
+        scene.events += scene.detector.update([pose], scene.t)
+    return scene
+
+
+def test_still_after_fall_is_judged_unresponsive_once():
+    scene = fall(Scene().hold(1.0))
+    lie(scene, 14.0)
+    [a] = scene.detector.pop_assessments()
+    assert a.outcome is Assessment.UNRESPONSIVE
+    assert a.fall is scene.events[0]
+    assert a.seconds_down == pytest.approx(FallThresholds().ASSESS_AFTER_S, abs=0.1)
+    assert a.motion < FallThresholds().STILL_SPREAD_MAX
+    assert scene.detector.pop_assessments() == []  # judged once
+
+
+def test_moving_on_the_floor_is_judged_moving():
+    scene = lie(fall(Scene().hold(1.0)), 12.0, sway_px=40.0)
+    [a] = scene.detector.pop_assessments()
+    assert a.outcome is Assessment.MOVING and a.motion > FallThresholds().STILL_SPREAD_MAX
+
+
+def test_getting_up_quickly_is_judged_recovered():
+    scene = lie(fall(Scene().hold(1.0)), 3.0)
+    get_up(scene)
+    [a] = scene.detector.pop_assessments()
+    assert a.outcome is Assessment.RECOVERED and a.seconds_down < 6
+
+
+def test_unresponsive_person_who_gets_up_is_then_recovered():
+    scene = lie(fall(Scene().hold(1.0)), 12.0)
+    get_up(scene)
+    outcomes = [a.outcome for a in scene.detector.pop_assessments()]
+    assert outcomes == [Assessment.UNRESPONSIVE, Assessment.RECOVERED]
+
+
+def test_down_status_counts_seconds_and_shows_outcome():
+    scene = lie(fall(Scene().hold(1.0)), 4.0)
+    seconds, outcome = scene.detector.down_status(1, scene.t)
+    assert 2.5 <= seconds < 4.0 and outcome is None  # DOWN starts once the fall is confirmed
+    lie(scene, 8.0)
+    assert scene.detector.down_status(1, scene.t)[1] is Assessment.UNRESPONSIVE
+    assert scene.detector.down_status(99, scene.t) is None
+
+
+def test_no_follow_up_for_a_fall_suppressed_by_cooldown():
+    scene = get_up(lie(fall(Scene().hold(1.0)), 2.0))
+    scene.detector.pop_assessments()
+    lie(fall(scene.hold(1.0)), 12.0)  # second fall inside EVENT_COOLDOWN_S: no event, no follow-up
+    assert len(scene.events) == 1 and scene.detector.pop_assessments() == []
+
+
+def test_manual_fall_is_followed_up_too():
+    detector = FallDetector()
+    detector.force_event(make_pose(track_id=5, angle_deg=85), now=0.0)
+    scene = Scene(detector, track_id=5)
+    scene.hip_y, scene.angle = 400.0, 85.0
+    lie(scene, 11.0)
+    [a] = detector.pop_assessments()
+    assert a.outcome is Assessment.UNRESPONSIVE and a.fall.manual
+
+
+def test_joint_spread_separates_jitter_from_movement():
+    rng = np.random.default_rng(3)
+    base = make_pose(angle_deg=85).keypoints
+    jitter = [base + np.c_[rng.normal(0, 2, (17, 2)), np.zeros(17)] for _ in range(100)]
+    moving = [base + np.c_[np.full((17, 2), 40 * math.sin(i / 5)), np.zeros(17)] for i in range(100)]
+    assert joint_spread(jitter, 300.0) < 0.015 < 0.03 < joint_spread(moving, 300.0)
+
+
+# --- lying toward the camera (foreshortened) ---------------------------------
+
+def squash_move(scene: Scene, seconds: float, hip_y: float, angle: float, squash_from: float, squash_to: float):
+    frames = max(1, round(seconds * FPS))
+    y0, a0 = scene.hip_y, scene.angle
+    for i in range(1, frames + 1):
+        k = i / frames
+        scene.hip_y, scene.angle = y0 + (hip_y - y0) * k, a0 + (angle - a0) * k
+        scene.squash = squash_from + (squash_to - squash_from) * k
+        scene.t += 1 / FPS
+        pose = make_pose(scene.track_id, hip_y=scene.hip_y, angle_deg=scene.angle, squash=scene.squash)
+        scene.events += scene.detector.update([pose], scene.t)
+    return scene
+
+
+def test_fall_toward_camera_is_confirmed_from_height_collapse():
+    """Torso stays near vertical in the image, but the body shrinks to a third."""
+    scene = Scene().hold(1.0)
+    squash_move(scene, 0.4, hip_y=FLOOR_HIP_Y, angle=12, squash_from=1.0, squash_to=0.35)
+    squash_move(scene, 3.0, hip_y=FLOOR_HIP_Y, angle=12, squash_from=0.35, squash_to=0.35)
+    assert len(scene.events) == 1
+    th = FallThresholds()
+    # Neither old "horizontal" condition holds, so only the collapse check can confirm it.
+    assert scene.events[0].torso_angle_deg < th.DOWN_TORSO_MIN_DEG and scene.events[0].bbox_aspect < th.DOWN_ASPECT_MIN
+    assert scene.events[0].pose_confidence >= 0.7  # still clears the backend's MIN_CONFIDENCE
+    assert scene.state is FallState.DOWN
+
+
+def test_person_lying_toward_camera_is_not_mistaken_for_recovered():
+    """Lying straight toward the camera: the image torso is near vertical (< 30 deg),
+    which alone would read as 'back upright'. Only the height check keeps them DOWN."""
+    scene = Scene().hold(1.0)
+    squash_move(scene, 0.4, hip_y=FLOOR_HIP_Y, angle=12, squash_from=1.0, squash_to=0.35)
+    squash_move(scene, 0.5, hip_y=FLOOR_HIP_Y, angle=4, squash_from=0.35, squash_to=0.35)
+    squash_move(scene, 12.5, hip_y=FLOOR_HIP_Y, angle=4, squash_from=0.35, squash_to=0.35)
+    from cv_engine.detector.features import compute_features
+    lying = make_pose(1, hip_y=FLOOR_HIP_Y, angle_deg=4, squash=0.35)
+    assert compute_features(lying).torso_angle_deg < FallThresholds().UPRIGHT_TORSO_MAX_DEG
+    assert scene.state is FallState.DOWN
+    assert [a.outcome for a in scene.detector.pop_assessments()] == [Assessment.UNRESPONSIVE]
+
+    squash_move(scene, 1.0, hip_y=STAND_HIP_Y, angle=0, squash_from=0.35, squash_to=1.0)
+    squash_move(scene, 1.5, hip_y=STAND_HIP_Y, angle=0, squash_from=1.0, squash_to=1.0)
+    assert scene.state is FallState.UPRIGHT
+    assert [a.outcome for a in scene.detector.pop_assessments()] == [Assessment.RECOVERED]
+
+
+def test_fast_crouch_toward_camera_is_not_a_fall():
+    """Crouching shrinks the body too, but not below half of standing height."""
+    scene = Scene().hold(1.0)
+    squash_move(scene, 0.3, hip_y=STAND_HIP_Y + 0.35 * BODY_PX, angle=20, squash_from=1.0, squash_to=0.65)
+    squash_move(scene, 3.0, hip_y=STAND_HIP_Y + 0.35 * BODY_PX, angle=20, squash_from=0.65, squash_to=0.65)
+    assert scene.events == []
+    assert scene.state is FallState.UPRIGHT
+
+
+def test_weakest_collapsed_fall_clears_backend_min_confidence():
+    from cv_engine.detector.fall_state import pose_confidence
+    from cv_engine.detector.types import PoseFeatures
+
+    th = FallThresholds()
+    upright_looking = PoseFeatures(torso_angle_deg=0.0, bbox_aspect=0.3, body_scale=300.0, hip_y=0.0,
+                                   keypoint_conf=th.MIN_KEYPOINT_CONF)
+    assert pose_confidence(upright_looking, th.FALL_DROP_VELOCITY, collapse=1 - th.COLLAPSE_HEIGHT_RATIO) > 0.7

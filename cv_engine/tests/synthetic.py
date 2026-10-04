@@ -26,10 +26,15 @@ def make_pose(
     hip_x: float = 320.0,
     conf: float = 0.9,
     ankle_conf: float = 0.9,
+    squash: float = 1.0,
 ) -> PersonPose:
-    """A person whose torso is tilted `angle_deg` from vertical (0 = standing)."""
+    """A person whose torso is tilted `angle_deg` from vertical (0 = standing).
+
+    `squash` < 1 shrinks the body vertically in the image, as when someone lies
+    pointing toward or away from a high camera (foreshortening).
+    """
     a = math.radians(angle_deg)
-    up = np.array([math.sin(a), -math.cos(a)])  # hip -> shoulder direction
+    up = np.array([math.sin(a), -math.cos(a) * squash])  # hip -> shoulder direction
     side = np.array([math.cos(a), math.sin(a)])  # across the shoulders
     hip = np.array([hip_x, hip_y])
     shoulder = hip + up * TORSO_PX

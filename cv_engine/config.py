@@ -33,19 +33,31 @@ class FallThresholds:
     DOWN_TORSO_MIN_DEG: float = 60.0
     DOWN_ASPECT_MIN: float = 1.0
 
-    # FALLING -> DOWN: horizontal for this long. Emits one FallEvent.
+    # Also "down": box height below this share of the person's standing height.
+    # Catches people lying toward or away from the camera, whose torso still looks
+    # upright in the image.
+    COLLAPSE_HEIGHT_RATIO: float = 0.5
+
+    # FALLING -> DOWN: down (horizontal or collapsed) for this long. Emits one FallEvent.
     DOWN_CONFIRM_S: float = 1.0
     # FALLING -> UPRIGHT: not horizontal this long after the drop (crouch or sit).
     FALLING_TIMEOUT_S: float = 1.5
 
-    # DOWN -> UPRIGHT: torso back within this angle for this long.
+    # DOWN -> UPRIGHT: torso back within this angle, and box back above this share
+    # of standing height, for RECOVER_CONFIRM_S.
     UPRIGHT_TORSO_MAX_DEG: float = 30.0
+    RECOVER_HEIGHT_RATIO: float = 0.75
     RECOVER_CONFIRM_S: float = 1.0
 
     # No second FallEvent for the same track_id within this window.
     EVENT_COOLDOWN_S: float = 15.0
     # Forget tracks not seen for this long.
     TRACK_TTL_S: float = 3.0
+
+    # Post-fall check: how long after DOWN to judge a person who is still down,
+    # and how much their joints may move (spread, in body-heights) to count as still.
+    ASSESS_AFTER_S: float = 10.0
+    STILL_SPREAD_MAX: float = 0.03
 
 
 @dataclass(frozen=True)

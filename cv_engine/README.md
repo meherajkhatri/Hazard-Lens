@@ -8,8 +8,10 @@ Full design and the code-terms glossary are in [`docs/dev1-cv-engine-plan.md`](.
 **Use Python 3.10–3.12.** Ultralytics 8.3.0 needs numpy < 2, which has no prebuilt wheels for
 Python 3.13+; pip then tries to compile numpy and fails with "Unknown compiler(s)" on Windows.
 On an Nvidia laptop, install the CUDA build of PyTorch before the requirements
-(`pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124`), otherwise
-pip installs the CPU-only build.
+(`pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128`), otherwise
+pip installs the CPU-only build. Check with
+`python -c "import torch; print(torch.__version__, torch.cuda.is_available())"`: the version should
+end in `+cu128` and print `True`. If not, the engine warns and runs on CPU.
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
@@ -75,6 +77,11 @@ Name clips so the label is in the file name: `fall_01.mp4` must trigger, anythin
 python -m cv_engine.eval_clips path/to/clips --device cuda           # pass/fail table
 python -m cv_engine.eval_clips path/to/clips --device cuda --sweep   # + best FallThresholds
 ```
+
+Share results without sharing videos: `--export cv_engine/tests/data/real_clips.json.gz` saves
+only the skeletons (joint positions over time, no images or faces). Commit that file and anyone
+can replay it with `--from-export ... --sweep`. The table also shows each clip's peak hip-drop
+speed, max torso angle and min height, which explains why a clip was missed or fired.
 
 Pose extraction (the GPU-heavy part) runs once per clip and is cached in `path/to/clips/.pose_cache`,
 so re-scoring and the 108-combination sweep take seconds. Keep clips and the cache out of the repo.

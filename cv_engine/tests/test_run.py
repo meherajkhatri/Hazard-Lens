@@ -22,9 +22,13 @@ FRAME = np.zeros((720, 640, 3), dtype=np.uint8)
 class ListEmitter:
     def __init__(self):
         self.sent = []
+        self.assessments = []
 
     def send(self, payload):
         self.sent.append(payload)
+
+    def send_assessment(self, incident_id, body):
+        self.assessments.append((incident_id, body))
 
 
 class SnapshotRecorder:
@@ -206,3 +210,60 @@ def test_blinded_camera_is_flagged_in_stream_status_overlay_and_heartbeat():
     assert tuple(annotated[-5, 5]) == VISION_WARNING_COLOR
     beats = [p for p in emitter.sent if p["metadata"].get("heartbeat")]
     assert beats[0]["metadata"]["vision"] == "ok" and beats[-1]["metadata"]["vision"] == "glare"
+
+
+def test_person_still_after_fall_is_escalated_on_stream_and_to_backend():
+    engine, emitter, streamer, clock = make_engine(falling_person)
+    annotated = None
+    for i in range(16 * FPS):
+        clock["t"] = i / FPS
+        annotated, _ = engine.process(FRAME, clock["t"])
+
+    fall = next(p for p in emitter.sent if p["event_type"] == "fall")
+    [(incident_id, body)] = emitter.assessments
+    assert incident_id == fall["event_id"]
+    assert body["outcome"] == "unresponsive" and body["seconds_down"] == pytest.approx(10.0, abs=0.2)
+    notes, unresponsive = engine._post_fall_notes(clock["t"])
+    assert unresponsive and notes[1].endswith("NO MOVEMENT")
+
+
+def test_recovered_label_after_getting_up():
+    def fall_then_get_up(t):
+        if t < 4.0:
+            return falling_person(t)
+        k = min((t - 4.0) / 1.0, 1.0)
+        return [make_pose(1, hip_y=400 + 0.5 * BODY_PX * (1 - k), angle_deg=85 * (1 - k))]
+
+    engine, emitter, _, clock = make_engine(fall_then_get_up)
+    for i in range(8 * FPS):
+        clock["t"] = i / FPS
+        engine.process(FRAME, clock["t"])
+    assert [b["outcome"] for _, b in emitter.assessments] == ["recovered"]
+    assert engine._post_fall_notes(clock["t"])[0] == {1: "RECOVERED"}
+
+
+def test_cuda_request_falls_back_to_cpu_when_torch_has_no_gpu(monkeypatch, caplog):
+    torch = pytest.importorskip("torch")
+    from cv_engine.run import usable_device
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    assert usable_device("cuda") == "cpu"
+    assert "can't use a GPU" in caplog.text
+    assert usable_device("cpu") == "cpu"
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    assert usable_device("cuda") == "cuda"
+
+
+def test_window_closed_detects_closed_or_missing_window(monkeypatch):
+    from cv_engine import run
+
+    monkeypatch.setattr(run.cv2, "getWindowProperty", lambda title, prop: 0.0)
+    assert run.window_closed("Call-Help cam")
+    monkeypatch.setattr(run.cv2, "getWindowProperty", lambda title, prop: 1.0)
+    assert not run.window_closed("Call-Help cam")
+
+    def missing(title, prop):
+        raise run.cv2.error("NULL window")
+
+    monkeypatch.setattr(run.cv2, "getWindowProperty", missing)
+    assert run.window_closed("Call-Help cam")
