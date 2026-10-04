@@ -37,7 +37,7 @@ class Settings:
         def csv(name, default=""):
             return [part.strip() for part in os.getenv(name, default).split(",") if part.strip()]
         return cls(
-            storage=os.getenv("STORAGE_BACKEND", "sqlite"),
+            storage=os.getenv("STORAGE_BACKEND", "supabase"),
             sqlite_path=os.getenv("SQLITE_PATH", "data/call_help.sqlite3"),
             api_key=os.getenv("API_KEY", ""),
             cors_origins=csv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000"),
@@ -45,7 +45,7 @@ class Settings:
             supabase_key=os.getenv("SUPABASE_SECRET_KEY", ""),
             sms_mode=os.getenv("SMS_MODE", "dry_run"),
             sms_channel=os.getenv("SMS_CHANNEL", "sms"),
-            alert_provider=os.getenv("ALERT_PROVIDER", "twilio"),
+            alert_provider=os.getenv("ALERT_PROVIDER", "brevo_email"),
             twilio_sid=os.getenv("TWILIO_ACCOUNT_SID", ""),
             twilio_token=os.getenv("TWILIO_AUTH_TOKEN", ""),
             twilio_from=os.getenv("TWILIO_FROM_NUMBER", ""),
@@ -65,7 +65,7 @@ class Settings:
         if self.storage not in {"sqlite", "supabase"}:
             raise ValueError("STORAGE_BACKEND must be sqlite or supabase")
         if self.storage == "supabase" and not (self.supabase_url.startswith("https://") and self.supabase_key):
-            raise ValueError("Supabase requires an HTTPS URL and a server secret key")
+            raise ValueError("Configure SUPABASE_URL (HTTPS) and SUPABASE_SECRET_KEY in backend/.env. For offline development only, explicitly set STORAGE_BACKEND=sqlite and ALERT_PROVIDER=twilio.")
         if self.sms_channel not in {"sms", "whatsapp"}:
             raise ValueError("SMS_CHANNEL must be sms or whatsapp")
         if self.sms_mode not in {"dry_run", "twilio"}:

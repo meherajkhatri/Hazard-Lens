@@ -213,3 +213,38 @@ seed data, and mocked provider contracts. Real Supabase, Twilio, and Gemini chec
 Official provider references: [Supabase Data API](https://supabase.com/docs/guides/api/quickstart),
 [Twilio Messages](https://www.twilio.com/docs/messaging/api/message-resource),
 [Gemini generateContent](https://ai.google.dev/api/generate-content).
+# Backend setup on every camera computer
+
+Each computer runs its own backend at `http://localhost:8000`. Configure all instances
+with the same Supabase project to share incidents. Runtime defaults now select Supabase
+and Brevo; missing credentials stop startup instead of silently using SQLite/dry-run.
+Existing `.env` files override defaults and must also be updated.
+
+Copy `backend/.env.example` to `backend/.env` for a new installation (preserve existing
+files). Privately fill `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `API_KEY`,
+`BREVO_SMTP_LOGIN`, `BREVO_SMTP_KEY`, `BREVO_FROM_EMAIL`, and `BREVO_RECIPIENTS`.
+Set `STORAGE_BACKEND=supabase` and `ALERT_PROVIDER=brevo_email`. Never commit credentials.
+Set `BACKEND_URL=http://localhost:8000` and the matching local backend `API_KEY` in
+`cv_engine/.env`. Restart the backend and camera after configuration changes.
+
+From `backend/`, with dependencies installed:
+
+```bash
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+In another terminal, from the repository root:
+
+```bash
+curl http://localhost:8000/health
+python -m cv_engine.preflight
+```
+
+Preflight requires Supabase and Brevo by default, even against older backend versions.
+It checks storage reads and telemetry compatibility, not writes or email delivery.
+Email submission results use the existing `sms_status` and `sms_results` columns.
+Existing SQLite history is not automatically transferred.
+
+For intentional offline development, explicitly set `STORAGE_BACKEND=sqlite`,
+`ALERT_PROVIDER=twilio`, and `SMS_MODE=dry_run`; use
+`python -m cv_engine.preflight --allow-local`. This does not send email.

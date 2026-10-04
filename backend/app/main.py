@@ -24,10 +24,10 @@ from app.storage import SQLiteStore, SupabaseStore
 
 def create_app(settings=None, *, transport=None, smtp_factory=None):
     settings = settings or Settings.from_env()
-    settings.validate()
 
     @asynccontextmanager
     async def lifespan(app):
+        settings.validate()
         async with httpx.AsyncClient(timeout=10, transport=transport) as client:
             store = SQLiteStore(settings.sqlite_path) if settings.storage == "sqlite" else SupabaseStore(settings, client)
             hub = EventHub()
