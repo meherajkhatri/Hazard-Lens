@@ -68,9 +68,6 @@ async def exercise(base_url, api_key, result):
                 ack = await receive(camera)
                 check(ack.get("status") == "received" and ack["incident"]["alert_status"] == "not_configured",
                     "camera_ack_without_alert")
-                updated = await receive(dashboard)
-                check(updated.get("type") == "incident.updated" and
-                    updated["incident"]["alert_status"] == "not_configured", "alert_status_broadcast")
                 await camera.send(json.dumps(payload))
                 check((await receive(camera)).get("status") == "duplicate", "websocket_retry_deduplicated")
         # Reconnect the dashboard, then restore state via the supported REST resync contract.

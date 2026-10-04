@@ -31,7 +31,7 @@ class Settings:
         def csv(name, default=""):
             return [part.strip() for part in os.getenv(name, default).split(",") if part.strip()]
         return cls(
-            storage=os.getenv("STORAGE_BACKEND", "sqlite"),
+            storage=os.getenv("STORAGE_BACKEND", "supabase"),
             sqlite_path=os.getenv("SQLITE_PATH", "data/call_help.sqlite3"),
             api_key=os.getenv("API_KEY", ""),
             cors_origins=csv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000"),
