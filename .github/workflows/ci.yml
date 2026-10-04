@@ -16,7 +16,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements-dev.txt
-      - run: pytest -q
+      - run: PYTHONPATH=. python -m pytest -q
 
   cv-engine:
     runs-on: ubuntu-latest
@@ -28,8 +28,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -r ../backend/requirements-cv.txt
-      - run: pytest -q
+      - run: pip install -r ../backend/requirements-cv.txt pytest
+      - run: PYTHONPATH=.. python -m pytest -q
 
   frontend:
     runs-on: ubuntu-latest
