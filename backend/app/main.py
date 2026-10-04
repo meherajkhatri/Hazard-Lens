@@ -56,8 +56,23 @@ def create_app(settings=None, *, transport=None):
 
     @app.get("/health")
     async def health():
-        return {"status": "ok", "storage": settings.storage, "sms_mode": settings.sms_mode,
-            "coach_mode": "ollama", "coach_model": settings.ollama_model}
+        ollama_status = "unreachable"
+        try:
+            response = await app.state.coach.client.get(f"{settings.ollama_url}/api/tags", timeout=3)
+            if response.status_code == 200:
+                names = [item.get("name") for item in response.json().get("models", [])]
+                ollama_status = "ready" if settings.ollama_model in names else "model_missing"
+        except (httpx.HTTPError, ValueError, TypeError, AttributeError):
+            pass
+        return {
+            "status": "ok",
+            "storage": settings.storage,
+            "sms_mode": settings.sms_mode,
+            "coach_mode": "ollama",
+            "coach_model": settings.ollama_model,
+            "ollama_status": ollama_status,
+            "ollama_url": settings.ollama_url,
+        }
 
     @router.get("/ready")
     async def ready():
