@@ -50,7 +50,14 @@ def draw_person(img: np.ndarray, person: PersonPose, state: FallState, note: str
     label = f"ID {person.track_id} {state.value}"
     cv2.putText(img, label, (x1, max(y1 - 6, BANNER_PX + 14)), cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
     if note:
-        cv2.putText(img, note, (x1, y2 + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+        # Under the box, or inside its bottom edge when the box reaches the bottom
+        # of the frame (a fallen person often does). Dark backing keeps it readable.
+        h = img.shape[0]
+        y = y2 + 22 if y2 + 22 < h - BANNER_PX else y2 - 10
+        x = max(x1, 0)
+        (tw, th), _ = cv2.getTextSize(note, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+        cv2.rectangle(img, (x, y - th - 6), (min(x + tw + 8, img.shape[1] - 1), y + 6), (0, 0, 0), -1)
+        put_fitted_text(img, note, (x + 4, y), color, scale=0.6)
 
 
 def draw_frame(
