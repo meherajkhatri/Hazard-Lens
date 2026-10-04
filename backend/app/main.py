@@ -57,7 +57,7 @@ def create_app(settings=None, *, transport=None):
     @app.get("/health")
     async def health():
         return {"status": "ok", "storage": settings.storage, "sms_mode": settings.sms_mode,
-            "coach_mode": "gemini" if settings.gemini_key else "local_summary"}
+            "coach_mode": "ollama", "coach_model": settings.ollama_model}
 
     @router.get("/ready")
     async def ready():
