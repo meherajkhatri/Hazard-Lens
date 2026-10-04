@@ -4,9 +4,7 @@ import ssl
 from email.message import EmailMessage
 from email.utils import formataddr
 
-import httpx
-
-from app.schemas import EmailAlert, SMSAlert
+from app.schemas import EmailAlert
 
 
 class AlertDispatcher:
@@ -14,36 +12,6 @@ class AlertDispatcher:
         self.settings = settings
         self.client = client
         self.smtp_factory = smtp_factory or smtplib.SMTP
-
-    async def send_sms_alert(self, alert: SMSAlert) -> dict[str, str]:
-        if self.settings.sms_mode == "dry_run":
-            return {"status": "dry_run", "recipient": alert.recipient}
-        sender, recipient = self.settings.twilio_from, alert.recipient
-        if self.settings.sms_channel == "whatsapp":
-            sender, recipient = f"whatsapp:{sender}", f"whatsapp:{recipient}"
-        try:
-            response = await self.client.post(
-                f"https://api.twilio.com/2010-04-01/Accounts/{self.settings.twilio_sid}/Messages.json",
-                auth=(self.settings.twilio_sid, self.settings.twilio_token),
-                data={"From": sender, "To": recipient, "Body": alert.message},
-            )
-        except httpx.RequestError:
-            # A timeout can occur after Twilio accepts a message. Do not retry blindly.
-            return {"status": "unknown", "recipient": alert.recipient, "error": "provider_connection_error"}
-        if response.is_error:
-            result = {"status": "failed", "recipient": alert.recipient, "error": "provider_rejected_request"}
-            try:
-                provider_code = response.json().get("code")
-                if isinstance(provider_code, (int, str)):
-                    result["provider_code"] = str(provider_code)
-            except (ValueError, AttributeError, TypeError):
-                pass
-            return result
-        try:
-            data = response.json()
-            return {"status": str(data["status"]), "recipient": alert.recipient, "sid": str(data["sid"])}
-        except (ValueError, KeyError, TypeError):
-            return {"status": "unknown", "recipient": alert.recipient, "error": "invalid_provider_response"}
 
     def _send_email(self, alert: EmailAlert) -> dict[str, str]:
         message = EmailMessage()
@@ -81,12 +49,7 @@ class AlertDispatcher:
                     subject=subject, message=message)))
             statuses = {row["status"] for row in results}
             return (next(iter(statuses)) if len(statuses) == 1 else "partial"), results
-        if not self.settings.sms_recipients:
-            return "not_configured", []
-        results = [await self.send_sms_alert(SMSAlert(recipient=recipient, message=message))
-                   for recipient in self.settings.sms_recipients]
-        statuses = {row["status"] for row in results}
-        return (next(iter(statuses)) if len(statuses) == 1 else "partial"), results
+        return "not_configured", []
 
     async def dispatch(self, incident):
         return await self._send_all(

@@ -12,6 +12,25 @@ class SQLiteStore:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         with sqlite3.connect(path) as db:
             db.execute("CREATE TABLE IF NOT EXISTS incidents (incident_id TEXT PRIMARY KEY, payload TEXT NOT NULL)")
+            rows = db.execute("SELECT incident_id, payload FROM incidents").fetchall()
+            for incident_id, payload in rows:
+                data = json.loads(payload)
+                changed = False
+                if "sms_status" in data:
+                    data["alert_status"] = data.pop("sms_status")
+                    changed = True
+                if "sms_results" in data:
+                    data["alert_results"] = data.pop("sms_results")
+                    changed = True
+                if "alert_status" not in data:
+                    data["alert_status"] = "not_configured"
+                    changed = True
+                if "alert_results" not in data:
+                    data["alert_results"] = []
+                    changed = True
+                if changed:
+                    db.execute("UPDATE incidents SET payload = ? WHERE incident_id = ?",
+                               (json.dumps(data), incident_id))
 
     def _execute(self, sql, params=(), *, fetch=False):
         with sqlite3.connect(self.path, timeout=10) as db:
@@ -30,8 +49,6 @@ class SQLiteStore:
     async def list(self, *, zone_id=None, status=None, since=None, until=None, limit=100, offset=0, camera_id=None, event_type=None, alert_history=False):
         # JSON columns keep the local schema equivalent to the Supabase record.
         clauses, params = [], []
-        if alert_history:
-            clauses.append("json_extract(payload, '$.sms_status') NOT IN ('cooldown', 'not_required', 'not_configured')")
         for field, value in [("zone_id", zone_id), ("status", status), ("camera_id", camera_id), ("event_type", event_type)]:
             if value is not None:
                 clauses.append(f"json_extract(payload, '$.{field}') = ?")
@@ -49,7 +66,7 @@ class SQLiteStore:
         return [IncidentAlert.model_validate_json(row[0]) for row in rows]
 
     async def update(self, incident_id, fields):
-        # Patch only specified fields so an acknowledgement cannot overwrite SMS results.
+        # Patch only specified fields so an acknowledgement cannot overwrite alert results.
         await asyncio.to_thread(self._execute,
             "UPDATE incidents SET payload = json_patch(payload, ?) WHERE incident_id = ?",
             (json.dumps(fields), str(incident_id)))
@@ -82,8 +99,6 @@ class SupabaseStore:
     async def list(self, *, zone_id=None, status=None, since=None, until=None, limit=100, offset=0, camera_id=None, event_type=None, alert_history=False):
         order_field = "received_at" if alert_history else "detected_at"
         params = [("order", f"{order_field}.desc,incident_id.desc"), ("limit", str(limit)), ("offset", str(offset))]
-        if alert_history:
-            params.append(("sms_status", "not.in.(cooldown,not_required,not_configured)"))
         for field, value in [("zone_id", zone_id), ("status", status), ("camera_id", camera_id), ("event_type", event_type)]:
             if value is not None:
                 params.append((field, f"eq.{value}"))

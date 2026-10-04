@@ -13,14 +13,7 @@ class Settings:
     cors_origins: list[str] = field(default_factory=lambda: ["http://localhost:5173", "http://localhost:3000"])
     supabase_url: str = ""
     supabase_key: str = ""
-    sms_mode: str = "dry_run"
-    # "sms" or "whatsapp" (Twilio WhatsApp sandbox: free-form text to numbers that joined it).
-    sms_channel: str = "sms"
-    alert_provider: str = "twilio"
-    twilio_sid: str = ""
-    twilio_token: str = ""
-    twilio_from: str = ""
-    sms_recipients: list[str] = field(default_factory=list)
+    alert_provider: str = "none"
     brevo_smtp_login: str = ""
     brevo_smtp_key: str = ""
     brevo_from_email: str = ""
@@ -43,6 +36,7 @@ class Settings:
             cors_origins=csv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000"),
             supabase_url=os.getenv("SUPABASE_URL", "").rstrip("/"),
             supabase_key=os.getenv("SUPABASE_SECRET_KEY", ""),
+<<<<<<< Updated upstream
             sms_mode=os.getenv("SMS_MODE", "dry_run"),
             sms_channel=os.getenv("SMS_CHANNEL", "sms"),
             alert_provider=os.getenv("ALERT_PROVIDER", "twilio"),
@@ -50,6 +44,9 @@ class Settings:
             twilio_token=os.getenv("TWILIO_AUTH_TOKEN", ""),
             twilio_from=os.getenv("TWILIO_FROM_NUMBER", ""),
             sms_recipients=csv("SMS_RECIPIENTS"),
+=======
+            alert_provider=os.getenv("ALERT_PROVIDER", "none"),
+>>>>>>> Stashed changes
             brevo_smtp_login=os.getenv("BREVO_SMTP_LOGIN", ""),
             brevo_smtp_key=os.getenv("BREVO_SMTP_KEY", ""),
             brevo_from_email=os.getenv("BREVO_FROM_EMAIL", ""),
@@ -65,6 +62,7 @@ class Settings:
         if self.storage not in {"sqlite", "supabase"}:
             raise ValueError("STORAGE_BACKEND must be sqlite or supabase")
         if self.storage == "supabase" and not (self.supabase_url.startswith("https://") and self.supabase_key):
+<<<<<<< Updated upstream
             raise ValueError("Supabase requires an HTTPS URL and a server secret key")
         if self.sms_channel not in {"sms", "whatsapp"}:
             raise ValueError("SMS_CHANNEL must be sms or whatsapp")
@@ -74,6 +72,11 @@ class Settings:
             raise ValueError("ALERT_PROVIDER must be twilio or brevo_email")
         if self.alert_provider == "twilio" and self.sms_mode == "twilio" and not all([self.api_key, self.twilio_sid, self.twilio_token, self.twilio_from, self.sms_recipients]):
             raise ValueError("Live SMS requires API_KEY, Twilio credentials, sender, and recipients")
+=======
+            raise ValueError("Configure SUPABASE_URL (HTTPS) and SUPABASE_SECRET_KEY in backend/.env. For offline development only, explicitly set STORAGE_BACKEND=sqlite and ALERT_PROVIDER=none.")
+        if self.alert_provider not in {"none", "brevo_email"}:
+            raise ValueError("ALERT_PROVIDER must be none or brevo_email")
+>>>>>>> Stashed changes
         if self.alert_provider == "brevo_email" and not all([self.api_key, self.brevo_smtp_login,
             self.brevo_smtp_key, self.brevo_from_email, self.brevo_recipients]):
             raise ValueError("Brevo email requires API_KEY, SMTP credentials, sender, and recipients")
@@ -83,9 +86,6 @@ class Settings:
             raise ValueError("OLLAMA_MODEL must not be empty")
         if not 0 <= self.min_confidence <= 1 or self.cooldown_seconds < 0:
             raise ValueError("Invalid confidence threshold or cooldown")
-        from app.schemas import SMSAlert
-        for number in self.sms_recipients + ([self.twilio_from] if self.twilio_from else []):
-            SMSAlert(recipient=number, message="validate")
         for address in self.brevo_recipients + ([self.brevo_from_email] if self.brevo_from_email else []):
             if "@" not in address or address.startswith("@") or address.endswith("@"):
                 raise ValueError("Brevo sender and recipients must be email addresses")

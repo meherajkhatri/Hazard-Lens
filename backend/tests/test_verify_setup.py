@@ -23,7 +23,7 @@ def test_missing_configuration_blocks_without_network():
 def test_read_only_is_not_a_pass():
     def handler(request):
         assert request.method == "GET"
-        assert "sms_results" in request.url.params["select"]
+        assert "alert_results" in request.url.params["select"]
         return httpx.Response(200, json=[])
     result = asyncio.run(verify(settings(), transport=httpx.MockTransport(handler)))
     assert result["status"] == "incomplete"
@@ -46,7 +46,7 @@ def test_write_probe_verifies_each_step_and_retains_resolved_record():
     assert result["status"] == "passed"
     assert result["checks"] == ["table_read_and_columns", "insert", "readback", "unique_incident_id", "update"]
     row = rows[result["probe_id"]]
-    assert row["status"] == "resolved" and row["sms_status"] == "not_required"
+    assert row["status"] == "resolved" and row["alert_status"] == "not_configured"
     assert row["metadata"]["setup_probe"] is True
 
 

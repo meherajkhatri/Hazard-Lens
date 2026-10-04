@@ -8,7 +8,7 @@ export function acknowledgeIncident(incident: Incident): Incident {
   return { ...incident, status: "acknowledged", acknowledgedAt: new Date().toISOString() };
 }
 export function dispatchResponse(incident: Incident): Incident {
-  // Connect the Twilio backend here; never expose service credentials in the client.
+  // Connect a server-side alert provider here; never expose service credentials in the client.
   return { ...incident, status: "dispatched", dispatchedAt: new Date().toISOString() };
 }
 export async function generateAIAnalysis() {

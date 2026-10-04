@@ -15,7 +15,7 @@ from pydantic import AwareDatetime, ValidationError
 
 from app.config import Settings
 from app.realtime import EventHub
-from app.schemas import CoachRequest, EmailAlert, FallAssessment, IncidentAlert, IncidentUpdate, SMSAlert, TelemetryEvent
+from app.schemas import CoachRequest, EmailAlert, FallAssessment, IncidentAlert, IncidentUpdate, TelemetryEvent
 from app.services.alert_dispatcher import AlertDispatcher
 from app.services.coach import SafetyCoach
 from app.services.telemetry import TelemetryService
@@ -67,7 +67,6 @@ def create_app(settings=None, *, transport=None, smtp_factory=None):
         return {
             "status": "ok",
             "storage": settings.storage,
-            "sms_mode": settings.sms_mode,
             "alert_provider": settings.alert_provider,
             "coach_mode": "ollama",
             "coach_model": settings.ollama_model,
@@ -113,12 +112,6 @@ def create_app(settings=None, *, transport=None, smtp_factory=None):
     @router.post("/incidents/{incident_id}/assessment")
     async def assess_incident(incident_id: UUID, assessment: FallAssessment):
         return await app.state.telemetry.assess(incident_id, assessment)
-
-    @router.post("/alerts/sms")
-    async def sms(alert: SMSAlert):
-        if alert.recipient not in settings.sms_recipients:
-            raise HTTPException(403, "Recipient is not in SMS_RECIPIENTS")
-        return await app.state.dispatcher.send_sms_alert(alert)
 
     @router.post("/alerts/email")
     async def email(alert: EmailAlert):

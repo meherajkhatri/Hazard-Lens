@@ -48,7 +48,7 @@ async def exercise_cv(base_url, api_key, result):
                 result["broadcast_latency_ms"] = round((time.perf_counter()-start)*1000, 1)
                 check(created.get("type") == "incident.created" and
                     created["incident"]["incident_id"] == payload["event_id"], "dev1_fall_broadcast")
-                check((await receive(dashboard))["incident"]["sms_status"] == "dry_run", "sms_dry_run")
+                check((await receive(dashboard))["incident"]["alert_status"] == "not_configured", "alert_status")
                 emitter.send(payload)  # identical retry must not create a second incident
                 emitter.send(heartbeat_payload(camera_id, zone, now+1, fps=30, people_detected=1))
                 deadline = time.monotonic()+20

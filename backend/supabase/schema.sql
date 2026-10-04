@@ -11,8 +11,8 @@ create table if not exists public.incidents (
   detected_at timestamptz not null,
   received_at timestamptz not null,
   status text not null default 'active' check (status in ('active', 'acknowledged', 'resolved')),
-  sms_status text not null default 'not_required',
-  sms_results jsonb not null default '[]'::jsonb,
+  alert_status text not null default 'not_configured',
+  alert_results jsonb not null default '[]'::jsonb,
   metadata jsonb not null default '{}'::jsonb
 );
 create index if not exists incidents_zone_time on public.incidents(zone_id, detected_at desc);

@@ -35,18 +35,13 @@ class IncidentAlert(BaseModel):
     detected_at: AwareDatetime
     received_at: AwareDatetime
     status: Literal["active", "acknowledged", "resolved"] = "active"
-    sms_status: str = "not_required"
-    sms_results: list[dict[str, str]] = Field(default_factory=list)
+    alert_status: str = "not_configured"
+    alert_results: list[dict[str, str]] = Field(default_factory=list)
     metadata: dict[str, str | int | float | bool] = Field(default_factory=dict)
 
 
 class IncidentUpdate(BaseModel):
     status: Literal["acknowledged", "resolved"]
-
-
-class SMSAlert(BaseModel):
-    recipient: str = Field(pattern=r"^\+[1-9]\d{7,14}$")
-    message: str = Field(min_length=1, max_length=1000)
 
 
 class EmailAlert(BaseModel):

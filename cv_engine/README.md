@@ -63,8 +63,8 @@ phone as a normal camera; use `--camera-index`. Over Wi-Fi: a camera app that se
 (e.g. Android "IP Webcam"), then `--camera-url http://<phone-ip>:8080/video`. Live cameras
 reconnect on their own if the phone drops out; `/health` shows `"camera": "reconnecting"` meanwhile.
 
-Webcams open at 640x480 so several fit in one laptop's USB bandwidth. Two cameras on one zone
-report the same fall twice; the backend's SMS cooldown must be per zone so only one text goes out.
+Webcams open at 640x480 so several fit in one laptop's USB bandwidth. Two cameras on one zone report the same fall twice; the backend's alert
+cooldown must be per camera and tracked person.
 
 Preview window keys: `q` quit, `f` manual fall for the largest person (sent with `trigger: "manual"`).
 
@@ -94,7 +94,7 @@ so re-scoring and the 108-combination sweep take seconds. Keep clips and the cac
 | `ZONE_ID` | `Zone 1` | |
 | `CAMERA_INDEX` | `0` | try `1` if the laptop's built-in camera opens instead of the USB webcam |
 | `BACKEND_URL` | `http://localhost:8000` | Dev 2's FastAPI server |
-| `API_KEY` | empty | must equal the backend's `API_KEY` (required there for live Twilio SMS) |
+| `API_KEY` | empty | must equal the backend's `API_KEY` |
 | `STREAM_PORT` | `8001` | |
 | `PUBLIC_HOST` | auto-detected LAN IP | set it if snapshot links point at the wrong interface |
 | `MODEL_PATH` | `yolov8n-pose.pt` | |

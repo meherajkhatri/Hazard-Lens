@@ -52,29 +52,27 @@ class TelemetryService:
                 self._alert_identity(row.camera_id, row.metadata) == alert_identity and
                 0 <= (now - row.received_at).total_seconds() < self.settings.cooldown_seconds
                 for row in recent)
-            sms_status = "not_required"
-            if event.event_type == "fall":
-                sms_status = "cooldown" if suppress else "pending"
+            alert_status = "cooldown" if suppress else "pending"
             incident = IncidentAlert(incident_id=incident_id, camera_id=event.camera_id,
                 zone_id=event.zone_id, event_type=event.event_type, pose_confidence=event.pose_confidence,
                 severity="medium" if event.event_type == "ppe_violation" else "high",
                 description=f"Possible {event.event_type.replace('_', ' ')} detected",
                 location=event.zone_id, detected_at=event.timestamp, received_at=now,
-                sms_status=sms_status, metadata=event.metadata)
+                alert_status=alert_status, metadata=event.metadata)
             if not await self.store.insert(incident):
                 return {"status": "duplicate", "incident": (await self.store.get(incident_id)).model_dump(mode="json")}
         await self.hub.publish({"type": "incident.created", "incident": incident.model_dump(mode="json")})
-        if incident.sms_status == "pending":
+        if incident.alert_status == "pending":
             status, results = await self.dispatcher.dispatch(incident)
-            incident = await self.store.update(incident_id, {"sms_status": status, "sms_results": results})
+            incident = await self.store.update(incident_id, {"alert_status": status, "alert_results": results})
             await self.hub.publish({"type": "incident.updated", "incident": incident.model_dump(mode="json")})
         return {"status": "received", "incident": incident.model_dump(mode="json")}
 
     async def assess(self, incident_id, assessment):
         """Record the camera's post-fall outcome and escalate when needed.
 
-        - unresponsive: urgent follow-up text, regardless of the cooldown
-        - recovered: an "update" text, but only if an urgent one was sent
+        - unresponsive: urgent follow-up alert, regardless of the cooldown
+        - recovered: an update alert, but only if an urgent one was sent
         - moving: recorded only
         Repeating the same outcome changes nothing and sends nothing.
         """
@@ -102,7 +100,7 @@ class TelemetryService:
         if escalate:
             status, results = await self.dispatcher.escalate(incident, assessment)
             incident = await self.store.update(incident_id, {
-                "metadata": {**incident.metadata, f"{assessment.outcome}_sms": status},
-                "sms_results": [*incident.sms_results, *results]})
+                "metadata": {**incident.metadata, f"{assessment.outcome}_alert": status},
+                "alert_results": [*incident.alert_results, *results]})
             await self.hub.publish({"type": "incident.updated", "incident": incident.model_dump(mode="json")})
         return {"status": "received", "incident": incident.model_dump(mode="json")}

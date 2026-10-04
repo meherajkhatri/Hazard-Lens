@@ -68,8 +68,8 @@ export default function Dashboard() {
     }
     async function health() {
       try {
-        const data = await request<{ sms_mode: string; coach_mode: string; storage: string }>("health", { signal: controller.signal });
-        if (!disposed) setMode(`Storage: ${data.storage} · SMS: ${data.sms_mode} · Coach: ${data.coach_mode}`);
+        const data = await request<{ alert_provider: string; coach_mode: string; storage: string }>("health", { signal: controller.signal });
+        if (!disposed) setMode(`Storage: ${data.storage} · Alerts: ${data.alert_provider} · Coach: ${data.coach_mode}`);
       } catch { if (!disposed) setMode("Backend unavailable"); }
     }
     void refresh(); void health();
