@@ -2,7 +2,7 @@ import json
 import logging
 import threading
 import time
-from dataclasses import asdict, replace
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -106,7 +106,9 @@ class DetectionService:
             events = self.detector.update(people, now)
 
             present_ids = {person.track_id for person in people}
-            self.confirmed_tracks.intersection_update(present_ids)
+            for track_id in list(self.confirmed_tracks):
+                if track_id in present_ids and self.detector.state_of(track_id) is FallState.UPRIGHT:
+                    self.confirmed_tracks.discard(track_id)
             confirmed_events = []
             for event in events:
                 if event.pose_confidence >= self.config.fall_confidence_threshold:
