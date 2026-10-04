@@ -26,8 +26,8 @@ class Settings:
     brevo_from_email: str = ""
     brevo_from_name: str = "CALL_HELP"
     brevo_recipients: list[str] = field(default_factory=list)
-    gemini_key: str = ""
-    gemini_model: str = ""
+    ollama_url: str = "http://127.0.0.1:11434"
+    ollama_model: str = "qwen2.5-coder:7b"
     min_confidence: float = 0.7
     cooldown_seconds: int = 30
 
@@ -55,8 +55,8 @@ class Settings:
             brevo_from_email=os.getenv("BREVO_FROM_EMAIL", ""),
             brevo_from_name=os.getenv("BREVO_FROM_NAME", "CALL_HELP"),
             brevo_recipients=csv("BREVO_RECIPIENTS"),
-            gemini_key=os.getenv("GEMINI_API_KEY", ""),
-            gemini_model=os.getenv("GEMINI_MODEL", ""),
+            ollama_url=os.getenv("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/"),
+            ollama_model=os.getenv("OLLAMA_MODEL", "qwen2.5-coder:7b"),
             min_confidence=float(os.getenv("MIN_CONFIDENCE", "0.7")),
             cooldown_seconds=int(os.getenv("ALERT_COOLDOWN_SECONDS", "30")),
         )
@@ -77,8 +77,10 @@ class Settings:
         if self.alert_provider == "brevo_email" and not all([self.api_key, self.brevo_smtp_login,
             self.brevo_smtp_key, self.brevo_from_email, self.brevo_recipients]):
             raise ValueError("Brevo email requires API_KEY, SMTP credentials, sender, and recipients")
-        if self.gemini_key and not (self.gemini_model and self.api_key):
-            raise ValueError("Gemini requires GEMINI_MODEL and API_KEY")
+        if not self.ollama_url.startswith(("http://", "https://")):
+            raise ValueError("OLLAMA_URL must be an HTTP(S) URL")
+        if not self.ollama_model.strip():
+            raise ValueError("OLLAMA_MODEL must not be empty")
         if not 0 <= self.min_confidence <= 1 or self.cooldown_seconds < 0:
             raise ValueError("Invalid confidence threshold or cooldown")
         from app.schemas import SMSAlert
