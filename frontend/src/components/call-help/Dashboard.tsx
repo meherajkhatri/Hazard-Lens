@@ -11,6 +11,7 @@ type Toast = { title: string; message: string; critical?: boolean };
 export default function Dashboard() {
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [selectedZone, setSelectedZone] = useState(process.env.NEXT_PUBLIC_CAMERA_ZONE || "Zone 1");
+  const [selectedCameraId, setSelectedCameraId] = useState<string | null>(null);
   const [drawerId, setDrawerId] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
   const [connection, setConnection] = useState("Connecting to backend…");
@@ -30,6 +31,9 @@ export default function Dashboard() {
   }));
   const activeIncident = incidents.find(row => row.zone_id === selectedZone && row.status !== "resolved")
     || incidents.find(row => row.status !== "resolved");
+  const displayedCameraIncident = selectedCameraId
+    ? incidents.find(row => row.camera_id === selectedCameraId && row.status !== "resolved") || activeIncident
+    : activeIncident;
   const zone = zones.find(row => row.id === selectedZone) || zones[0];
   useEffect(() => {
     const tick = () => setNow(new Date());
@@ -78,6 +82,7 @@ export default function Dashboard() {
       if (event.type === "incident.created" && !seen.current.has(row.incident_id)) {
         seen.current.add(row.incident_id);
         setSelectedZone(row.zone_id);
+        setSelectedCameraId(row.camera_id);
         setToast({ title: "New incident detected", message: `${row.description} · ${row.zone_id}`, critical: row.severity === "high" });
         const context = audio.current;
         if (context?.state === "running") {
@@ -116,8 +121,8 @@ export default function Dashboard() {
       <div className="dashboard-intro"><div><div className="eyebrow"><span/> LIVE OPERATIONS</div><h1>Safety command center<span>.</span></h1><p>Real-time awareness. Faster response. Safer people.</p></div><div className="facility-label"><MapPin size={19}/><b>{zone.name}</b></div></div>
       <div className="operation-strip"><div><ShieldCheck size={15}/><b>{connection}</b></div><button className="button secondary" onClick={toggleSound}>{sound ? "Mute alerts" : "Enable alert sound"}</button></div>
       {error && <p role="alert" className="integration-error">{error} · Displayed records may be stale.</p>}
-      <div className="primary-grid"><LiveCameraPanel zone={zone}/><ActiveIncidentCard incident={activeIncident} pending={pending} onAcknowledge={() => activeIncident && void changeStatus(activeIncident.incident_id, "acknowledged")} onCamera={() => { if (activeIncident) setSelectedZone(activeIncident.zone_id); document.getElementById("live-camera")?.scrollIntoView({ behavior: "smooth" }); }}/></div>
-      <div className="secondary-grid"><ZoneStatusPanel zones={zones} selected={selectedZone} onSelect={row => setSelectedZone(row.id)}/><SafetyStats incidents={today}/><IncidentTimeline incidents={incidents} onSelect={row => setDrawerId(row.incident_id)}/></div>
+      <div className="primary-grid"><LiveCameraPanel zone={zone} cameraId={selectedCameraId || activeIncident?.camera_id || null} incident={displayedCameraIncident}/><ActiveIncidentCard incident={activeIncident} pending={pending} onAcknowledge={() => activeIncident && void changeStatus(activeIncident.incident_id, "acknowledged")} onCamera={() => { if (activeIncident) { setSelectedZone(activeIncident.zone_id); setSelectedCameraId(activeIncident.camera_id); } document.getElementById("live-camera")?.scrollIntoView({ behavior: "smooth" }); }}/></div>
+      <div className="secondary-grid"><ZoneStatusPanel zones={zones} selected={selectedZone} onSelect={row => { setSelectedZone(row.id); setSelectedCameraId(incidents.find(incident => incident.zone_id === row.id && incident.status !== "resolved")?.camera_id || null); }}/><SafetyStats incidents={today}/><IncidentTimeline incidents={incidents} onSelect={row => { setDrawerId(row.incident_id); setSelectedZone(row.zone_id); setSelectedCameraId(row.camera_id); }}/></div>
       <AISafetyInsights zone={selectedZone}/>
       <footer className="dashboard-footer"><span><Activity size={12}/> CALL-HELP</span><span>{mode}</span></footer>
     </main>

@@ -41,10 +41,10 @@ def client(settings, twilio):
         yield client
 
 
-def fall(camera_id="zone-1-cam-1", zone_id="Zone 1"):
+def fall(camera_id="zone-1-cam-1", zone_id="Zone 1", metadata=None):
     return {"event_id": str(uuid4()), "camera_id": camera_id, "zone_id": zone_id,
             "timestamp": datetime.now(timezone.utc).isoformat(), "event_type": "fall",
-            "pose_confidence": 0.9, "metadata": {"trigger": "auto"}}
+            "pose_confidence": 0.9, "metadata": metadata or {"trigger": "auto"}}
 
 
 def assessment(outcome, seconds_down=10.0):
@@ -117,14 +117,29 @@ def test_assessment_requires_the_api_key(settings, twilio):
         assert client.post(f"/api/v1/incidents/{uuid4()}/assessment", json=assessment("moving")).status_code == 401
 
 
-def test_two_cameras_on_one_zone_send_one_text(client, twilio):
+def test_distinct_cameras_on_one_zone_send_independent_alerts(client, twilio):
     first = client.post("/api/v1/telemetry", json=fall(camera_id="zone-1-cam-1")).json()
     second = client.post("/api/v1/telemetry", json=fall(camera_id="zone-1-cam-2")).json()
     assert first["incident"]["sms_status"] == "queued"
-    assert second["incident"]["sms_status"] == "cooldown"
-    assert len(twilio.sent) == 1
+    assert second["incident"]["sms_status"] == "queued"
+    assert len(twilio.sent) == 2
     other_zone = client.post("/api/v1/telemetry", json=fall(camera_id="corridor-cam-1", zone_id="Forklift Corridor")).json()
-    assert other_zone["incident"]["sms_status"] == "queued" and len(twilio.sent) == 2
+    assert other_zone["incident"]["sms_status"] == "queued" and len(twilio.sent) == 3
+
+
+def test_person_cooldown_uses_track_or_cross_camera_alert_group(client, twilio):
+    first = client.post("/api/v1/telemetry", json=fall(metadata={"track_id": "worker-1"})).json()
+    second = client.post("/api/v1/telemetry", json=fall(metadata={"track_id": "worker-2"})).json()
+    repeat = client.post("/api/v1/telemetry", json=fall(metadata={"track_id": "worker-1"})).json()
+    assert first["incident"]["sms_status"] == second["incident"]["sms_status"] == "queued"
+    assert repeat["incident"]["sms_status"] == "cooldown"
+    correlated = client.post("/api/v1/telemetry", json=fall(camera_id="zone-1-cam-2",
+        metadata={"track_id": "other-local-track", "alert_group_id": "worker-3"})).json()
+    same_person_other_camera = client.post("/api/v1/telemetry", json=fall(camera_id="zone-1-cam-1",
+        metadata={"track_id": "worker-3", "alert_group_id": "worker-3"})).json()
+    assert correlated["incident"]["sms_status"] == "queued"
+    assert same_person_other_camera["incident"]["sms_status"] == "cooldown"
+    assert len(twilio.sent) == 3
 
 
 def test_whatsapp_channel_prefixes_numbers(settings, twilio):

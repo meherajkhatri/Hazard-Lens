@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { Activity, ArrowRight, Bell, Check, ChevronRight, CircleCheck, Clock3, Expand, LoaderCircle, MapPin, ScanLine, Send, ShieldCheck, Siren, Sparkles, TriangleAlert, Video, X } from "lucide-react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { askCoach } from "@/lib/call-help/api";
+import { resolveCameraStream } from "@/lib/call-help/cameras";
 import { eventLabel, type CoachAnswer, type Incident, type Zone } from "@/lib/call-help/types";
 
 const formatTime = (timestamp: string) => new Date(timestamp).toLocaleString();
@@ -10,27 +11,29 @@ export function StatusBadge({ status, children }: { status: string; children?: R
 export function TopNav({ connection, onNotifications }: { connection: string; onNotifications: () => void }) {
   return <header className="top-nav"><div className="brand"><div className="brand-icon"><Activity size={24}/></div><div><div className="brand-name">CALL<span>-</span>HELP</div><div className="brand-tagline">Industrial Transit Safety</div></div></div><div className="nav-right"><span className="small-label">{connection}</span><button className="icon-button" aria-label="View notifications" onClick={onNotifications}><Bell size={19}/></button></div></header>;
 }
-export function LiveCameraPanel({ zone }: { zone: Zone }) {
+export function LiveCameraPanel({ zone, cameraId, incident }: { zone: Zone; cameraId: string | null; incident?: Incident }) {
   const [expanded, setExpanded] = useState(false);
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [loaded, setLoaded] = useState(false);
-  const stream = process.env.NEXT_PUBLIC_CAMERA_STREAM_URL;
-  const cameraZone = process.env.NEXT_PUBLIC_CAMERA_ZONE || "Zone 1";
+  const stream = resolveCameraStream(cameraId, process.env.NEXT_PUBLIC_CAMERA_STREAM_URL);
+  const snapshot = typeof incident?.metadata.snapshot_url === "string" ? incident.metadata.snapshot_url : undefined;
+  const source = stream || snapshot;
   useEffect(() => {
     if (!expanded) return;
     const key = (e: KeyboardEvent) => { if (e.key === "Escape") setExpanded(false); };
     document.addEventListener("keydown", key); return () => document.removeEventListener("keydown", key);
   }, [expanded]);
+  useEffect(() => { setFailed(false); setLoaded(false); }, [cameraId, source]);
   return <section className={`panel camera-panel ${expanded ? "camera-expanded" : ""}`} id="live-camera">
-    <div className="panel-heading"><div><h2><Video size={15}/> CAMERA MONITORING</h2><p><MapPin size={12}/>{zone.name}</p></div><button className="icon-button" aria-label={expanded ? "Exit expanded camera" : "Expand camera"} onClick={() => setExpanded(!expanded)}>{expanded ? <X size={17}/> : <Expand size={16}/>}</button></div>
+    <div className="panel-heading"><div><h2><Video size={15}/> CAMERA MONITORING</h2><p><MapPin size={12}/>{zone.name}{cameraId ? ` · ${cameraId}` : ""}</p></div><button className="icon-button" aria-label={expanded ? "Exit expanded camera" : "Expand camera"} onClick={() => setExpanded(!expanded)}>{expanded ? <X size={17}/> : <Expand size={16}/>}</button></div>
     <div className="camera-view">
-      {stream && zone.id === cameraZone && !failed ? <>
+      {source && !failed ? <>
         {/* MJPEG is a continuous response and must use a native image element. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img key={attempt} src={stream} alt={`Annotated CV feed for ${cameraZone}`} className="live-stream" onLoad={() => setLoaded(true)} onError={() => { setFailed(true); setLoaded(false); }}/>
-        <span className="scene-label">{loaded ? "CV camera stream" : "Connecting to camera…"}</span>
-      </> : <div className="camera-placeholder"><Video size={36}/><p>{failed && zone.id === cameraZone ? "Camera feed unavailable" : "No camera feed configured for this zone"}</p>{failed && <button className="button secondary" onClick={() => { setFailed(false); setLoaded(false); setAttempt(n => n + 1); }}>Reconnect camera</button>}</div>}
+        <img key={`${cameraId || "camera"}-${attempt}`} src={source} alt={`Annotated CV feed for ${cameraId || zone.name}`} className="live-stream" onLoad={() => setLoaded(true)} onError={() => { setFailed(true); setLoaded(false); }}/>
+        <span className="scene-label">{loaded ? (stream ? "Live CV camera stream" : "Incident snapshot") : "Connecting to camera…"}</span>
+      </> : <div className="camera-placeholder"><Video size={36}/><p>{failed ? "Camera feed unavailable" : "No camera feed configured for this incident"}</p>{failed && <button className="button secondary" onClick={() => { setFailed(false); setLoaded(false); setAttempt(n => n + 1); }}>Reconnect camera</button>}</div>}
     </div><div className="camera-controls"><div className="vision-status"><ScanLine size={15}/><span>Detection overlays are supplied by the CV engine</span></div></div>
   </section>;
 }

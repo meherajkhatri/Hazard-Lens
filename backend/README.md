@@ -128,10 +128,12 @@ Reusing an ID with different telemetry returns 409. If no ID is supplied, a dete
 from the normalized payload; a changed timestamp represents a new event.
 
 Each qualifying event is persisted and broadcast. Only falls trigger automatic SMS.
-`ALERT_COOLDOWN_SECONDS` (default 30) suppresses additional SMS for the same zone and event type,
-across all cameras in that zone, so two cameras seeing one fall send one text. It does not suppress
-incident records, dashboard events, or post-fall escalations. Set it to 0 if each distinct event
-must alert, including separate people in the same camera view.
+`ALERT_COOLDOWN_SECONDS` (default 30) suppresses repeat alerts for the same person/event, while every
+incident is still stored and broadcast. The CV sender's `track_id` makes two people on one camera alert
+independently. For the same person seen by multiple cameras, send the same optional
+`metadata.alert_group_id` from each feed to produce one alert; without it, each camera alerts
+independently to avoid hiding a possible second fallen worker. Post-fall `unresponsive` escalation
+bypasses the cooldown.
 
 ### Dev 1 handoff and rehearsal
 
