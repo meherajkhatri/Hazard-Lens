@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --webpack",
-    "build": "next build --webpack",
-    "start": "next start",
+    "dev": "WS_NO_BUFFER_UTIL=1 WS_NO_UTF_8_VALIDATE=1 next dev --webpack",
+    "build": "WS_NO_BUFFER_UTIL=1 WS_NO_UTF_8_VALIDATE=1 next build --webpack",
+    "start": "WS_NO_BUFFER_UTIL=1 WS_NO_UTF_8_VALIDATE=1 next start",
     "lint": "eslint",
     "test:integration": "node --test tests/integration.mjs"
   },
