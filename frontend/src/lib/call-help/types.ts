@@ -16,7 +16,7 @@ export type Incident = {
 };
 export type CoachAnswer = {
   answer: string;
-  mode: "gemini" | "local_summary";
+  mode: "ollama";
   incident_ids: string[];
   context_count: number;
   truncated: boolean;
