@@ -104,6 +104,9 @@ Open `http://localhost:3000`. Stop services with `Control + C` in each terminal.
 
   The dashboard's **Camera** selector can show one feed or all configured
   feeds at the same time. Use the CV output URLs, not raw camera URLs.
+  `frontend/.env.local` takes precedence over `frontend/.env`; when the
+  browser is on another device, use the CV host's LAN address instead of
+  `127.0.0.1` for every camera stream.
 - For Brevo email, set `ALERT_PROVIDER=brevo_email` and fill its variables in
   `backend/.env`.
 - Automatic email alerts are sent only when model confidence is strictly above
