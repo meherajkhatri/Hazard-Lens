@@ -21,7 +21,7 @@ class Settings:
     twilio_from: str = ""
     sms_recipients: list[str] = field(default_factory=list)
     ollama_url: str = "http://127.0.0.1:11434"
-    ollama_model: str = "qwen2.5:3b"
+    ollama_model: str = "qwen2.5-coder:7b"
     min_confidence: float = 0.7
     cooldown_seconds: int = 30
 
@@ -44,7 +44,7 @@ class Settings:
             twilio_from=os.getenv("TWILIO_FROM_NUMBER", ""),
             sms_recipients=csv("SMS_RECIPIENTS"),
             ollama_url=os.getenv("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/"),
-            ollama_model=os.getenv("OLLAMA_MODEL", "qwen2.5:3b"),
+            ollama_model=os.getenv("OLLAMA_MODEL", "qwen2.5-coder:7b"),
             min_confidence=float(os.getenv("MIN_CONFIDENCE", "0.7")),
             cooldown_seconds=int(os.getenv("ALERT_COOLDOWN_SECONDS", "30")),
         )
