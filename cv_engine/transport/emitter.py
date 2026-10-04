@@ -29,6 +29,7 @@ HEARTBEAT_TIMEOUT_S = 2.0
 RETRY_DELAYS_S = (0.25, 1.0)  # immediate retries per attempt
 RESEND_INTERVAL_S = 2.0  # how often undelivered falls are retried
 MAX_PENDING_FALLS = 100
+UNREACHABLE_LOG_EVERY_S = 30.0  # while the backend is down, log it this often, not every retry
 
 
 def _iso(ts: float) -> str:
@@ -121,6 +122,9 @@ class TelemetryEmitter:
         self._pending_assessments: deque[tuple[str, dict]] = deque(maxlen=MAX_PENDING_FALLS)
         self.assessments_delivered = 0
         self._warned_no_assessment_endpoint = False
+        self._unreachable_since: float | None = None
+        self._last_unreachable_log = float("-inf")
+        self._suppressed_unreachable = 0
         self.rejected = 0  # falls the backend refused or ignored; should stay 0
         self._thread.start()
 
@@ -141,6 +145,27 @@ class TelemetryEmitter:
         self._queue.put(None)
         self._thread.join(timeout)
 
+    def _unreachable(self, what: str, exc: Exception) -> None:
+        now = time.monotonic()
+        if self._unreachable_since is None:
+            self._unreachable_since = now
+        if now - self._last_unreachable_log < UNREACHABLE_LOG_EVERY_S:
+            self._suppressed_unreachable += 1
+            return
+        self._last_unreachable_log = now
+        more = f" ({self._suppressed_unreachable} more failed tries)" if self._suppressed_unreachable else ""
+        self._suppressed_unreachable = 0
+        log.warning("backend unreachable at %s (%s, %s)%s; %d falls waiting. Check BACKEND_URL and run "
+                    "python -m cv_engine.preflight", self.base_url, what, type(exc).__name__, more,
+                    len(self._pending_falls))
+
+    def _reachable(self) -> None:
+        if self._unreachable_since is not None:
+            log.info("backend reachable again after %.0fs", time.monotonic() - self._unreachable_since)
+            self._unreachable_since = None
+            self._last_unreachable_log = float("-inf")
+            self._suppressed_unreachable = 0
+
     def _post(self, payload: dict, retry: bool = True) -> bool:
         """True when the payload is settled (accepted, or rejected for good)."""
         heartbeat = is_heartbeat(payload)
@@ -151,8 +176,9 @@ class TelemetryEmitter:
             try:
                 response = self._session.post(self.url, json=payload, timeout=timeout)
             except requests.RequestException as exc:
-                log.warning("backend unreachable (%s): %s", payload["event_type"], exc)
+                self._unreachable(payload["event_type"], exc)
                 continue
+            self._reachable()
             if response.ok:
                 self.delivered += 1
                 try:
@@ -190,8 +216,9 @@ class TelemetryEmitter:
             response = self._session.post(self.base_url + assessment_path(incident_id), json=body,
                                           timeout=FALL_TIMEOUT_S)
         except requests.RequestException as exc:
-            log.warning("backend unreachable (assessment): %s", exc)
+            self._unreachable("assessment", exc)
             return False
+        self._reachable()
         if response.ok:
             self.assessments_delivered += 1
             return True
