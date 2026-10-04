@@ -67,7 +67,7 @@ export function LiveCameraPanel({ zone }: { zone: Zone }) {
   async function sampleFrame() {
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    if (!video || !canvas || video.readyState < 2 || inFlightRef.current || state === "off") return;
+    if (!video || !canvas || video.readyState < 2 || inFlightRef.current || !streamRef.current) return;
 
     const sourceWidth = video.videoWidth || 640;
     const sourceHeight = video.videoHeight || 480;
