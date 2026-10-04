@@ -29,7 +29,7 @@ class PoseFeatures:
     bbox_aspect: float  # bbox width / height
     body_scale: float  # shoulder-mid -> ankle-mid distance, pixels
     hip_y: float  # hip-mid y, pixels (grows downward)
-    keypoint_conf: float  # lowest conf among shoulders + hips
+    keypoint_conf: float  # min(best shoulder conf, best hip conf)
 
 
 class FallState(str, Enum):
@@ -52,6 +52,9 @@ class FallEvent:
     keypoint_conf: float
     bbox: BBox
     manual: bool = False  # True when raised with the F key, not by detection
+    # How the fall was established: "seen_drop" (the drop was watched), "unseen_drop"
+    # (person vanished upright and reappeared down) or "found_down" (lying, fall not seen).
+    detection: str = "seen_drop"
 
 
 class Assessment(str, Enum):
