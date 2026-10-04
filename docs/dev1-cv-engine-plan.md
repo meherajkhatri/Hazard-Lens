@@ -57,7 +57,7 @@ Run everything **from the repo root** as a module: `python -m cv_engine.run` (ad
 | `drop_velocity` | How fast `hip_y` moves down, normalized by `body_scale` | body-heights / second |
 | `FallState` | `UPRIGHT` (green box), `FALLING` (amber), `DOWN` (red) | enum |
 | `FallDetector` | Holds one state machine per `track_id`; `update(people, now)` → `list[FallEvent]` | — |
-| `FallEvent` | One confirmed fall; maps 1:1 to a `fall` telemetry payload | — |
+| `FallEvent` | One confirmed fall; maps 1:1 to a `fall` telemetry payload. `detection` = `seen_drop`, `unseen_drop` or `found_down` | — |
 | `pose_confidence` | Score sent to the backend: 0.65 + 0.35 × `fall_quality` for a confirmed fall, 1.0 for manual | 0–1 |
 | `event_id` | UUID per fall, stable across resends; also the incident ID and snapshot name | UUID |
 | `CAMERA_ID` / `ZONE_ID` | `"zone-1-cam-1"` / `"Zone 1"` | config |
@@ -90,6 +90,10 @@ FALLING ──(down for ≥ DOWN_CONFIRM_S = 1.0s)──▶ DOWN  → emit ONE F
 FALLING ──(not down FALLING_TIMEOUT_S = 1.5s after the drop)──▶ UPRIGHT   (crouch/sit, no event)
 DOWN    ──(torso_angle_deg ≤ UPRIGHT_TORSO_MAX_DEG (30) AND box height ≥ RECOVER_HEIGHT_RATIO (0.75)
            × standing height, for ≥ RECOVER_CONFIRM_S = 1.0s)──▶ UPRIGHT
+UPRIGHT ──(upright, then hidden >= UNSEEN_DROP_GAP_S (0.3s), then down within
+           UNSEEN_DROP_MAX_S (2s) of last upright)──▶ FALLING          detection = unseen_drop
+UPRIGHT ──(lying for FOUND_DOWN_S (10s), no fall seen)──▶ DOWN → FallEvent   detection = found_down
+new track ID within HANDOVER_MAX_S (2s) and 1x height of a lost track → continues that track
 cooldown: no second FallEvent for the same track_id within EVENT_COOLDOWN_S = 15s
 tracks not seen for TRACK_TTL_S = 3s are forgotten
 ```

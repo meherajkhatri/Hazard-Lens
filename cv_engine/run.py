@@ -173,6 +173,8 @@ class Engine:
                 seconds, outcome = down
                 notes[person.track_id] = f"DOWN {seconds:.0f}s{OUTCOME_NOTES[outcome]}"
                 unresponsive |= outcome is Assessment.UNRESPONSIVE
+            elif (lying := self.detector.lying_seconds(person.track_id, now)) is not None:
+                notes[person.track_id] = f"ON FLOOR {lying:.0f}s"
             elif self._recovered_until.get(person.track_id, 0) > now:
                 notes[person.track_id] = "RECOVERED"
         return notes, unresponsive

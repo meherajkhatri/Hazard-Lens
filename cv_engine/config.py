@@ -66,6 +66,11 @@ class FallThresholds:
     HANDOVER_MAX_S: float = 2.0
     HANDOVER_DIST_RATIO: float = 1.0
 
+    # Someone lying down this long without a fall being seen (already down when the
+    # camera started, or a drop hidden for longer than UNSEEN_DROP_MAX_S) gets a
+    # "found_down" alert. Also flags deliberate lying in the area, by design.
+    FOUND_DOWN_S: float = 10.0
+
     # Post-fall check: how long after DOWN to judge a person who is still down,
     # and how much their joints may move (spread, in body-heights) to count as still.
     ASSESS_AFTER_S: float = 10.0

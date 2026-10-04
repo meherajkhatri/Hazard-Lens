@@ -111,3 +111,60 @@ def test_someone_walks_into_the_spot_a_lost_person_left():
 def test_reported_person_given_a_new_id_on_the_floor_gets_no_second_alert():
     _, events = run(lambda t: [person(t, 1 if t < 4.0 else 9, 320, fall_at=1.0)])
     assert ids(events) == [1]
+
+
+# --- found_down: lying a long time, no fall seen --------------------------------
+
+def lying_from_start(t, track=1, x=320):
+    return make_pose(track, hip_y=FLOOR, angle_deg=85, hip_x=x)
+
+
+def test_person_already_on_the_floor_is_reported_after_found_down_time():
+    from cv_engine.config import FallThresholds
+
+    th = FallThresholds()
+    detector, events = run(lambda t: [lying_from_start(t)], seconds=th.FOUND_DOWN_S + 1)
+    [event] = events
+    assert event.detection == "found_down"
+    assert event.timestamp == pytest.approx(th.FOUND_DOWN_S, abs=0.1)
+    assert event.pose_confidence >= 0.7  # clears the backend's MIN_CONFIDENCE
+    assert detector.state_of(1) is FallState.DOWN
+
+
+def test_found_down_is_followed_up_like_any_fall():
+    from cv_engine.detector.types import Assessment
+
+    detector, events = run(lambda t: [lying_from_start(t)], seconds=22)
+    assert len(events) == 1
+    assert [a.outcome for a in detector.pop_assessments()] == [Assessment.UNRESPONSIVE]
+
+
+def test_on_floor_counter_runs_then_stops_when_they_get_up():
+    detector = FallDetector()
+    for i in range(int(5 * FPS)):
+        detector.update([lying_from_start(i / FPS)], i / FPS)
+    assert detector.lying_seconds(1, 5.0) == pytest.approx(5.0, abs=0.1)
+    for i in range(int(5 * FPS), int(7 * FPS)):
+        detector.update([make_pose(1, hip_y=STAND)], i / FPS)
+    assert detector.lying_seconds(1, 7.0) is None
+
+
+def test_getting_up_before_found_down_time_sends_nothing():
+    _, events = run(lambda t: [lying_from_start(t) if t < 8 else make_pose(1, hip_y=STAND)], seconds=14)
+    assert events == []
+
+
+def test_seen_fall_is_not_reported_twice_by_found_down():
+    _, events = run(lambda t: [person(t, 1, 320, fall_at=1.0)], seconds=25)
+    assert [e.detection for e in events] == ["seen_drop"]
+
+
+def test_slow_deliberate_lie_down_is_flagged_only_after_found_down_time():
+    """By design: not a fall alert, but someone lying 10s+ in the area is reported."""
+    def scene(t):
+        k = min(t / 4.0, 1.0)
+        return [make_pose(1, hip_y=STAND + (FLOOR - STAND) * k, angle_deg=88 * k)]
+    _, early = run(scene, seconds=7.0)
+    assert early == []
+    _, late = run(scene, seconds=16.0)
+    assert [e.detection for e in late] == ["found_down"]
