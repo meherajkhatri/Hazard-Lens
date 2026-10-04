@@ -36,7 +36,7 @@ const CV_URL = (process.env.NEXT_PUBLIC_CV_API_URL || "http://127.0.0.1:5000").r
 export async function getCvHealth(signal?: AbortSignal): Promise<CvHealth> {
   const response = await fetch(`${CV_URL}/api/health`, { cache: "no-store", signal });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || data.error === "" ? data.error : "CV backend unavailable");
+  if (!response.ok) throw new Error(typeof data.error === "string" && data.error ? data.error : "CV backend unavailable");
   return data as CvHealth;
 }
 
