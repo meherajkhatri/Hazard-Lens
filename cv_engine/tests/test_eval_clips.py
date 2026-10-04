@@ -142,3 +142,40 @@ def test_frame_folders_nested_one_level_are_found_and_read(tmp_path):
     assert [p.name for p in find_clips(tmp_path)] == ["fall-01-cam0-rgb"]
     assert frame_dir(outer) == inner
     assert [round(t, 3) for t, _ in _read_frames(outer, 30.0)] == [0.0, 0.033, 0.067]
+
+
+def test_export_round_trip_scores_the_same_and_holds_no_images(tmp_path):
+    from cv_engine.eval_clips import export_clips, load_export
+
+    path = tmp_path / "data" / "real_clips.json.gz"
+    export_clips(CLIPS, path, "yolov8n-pose.pt")
+    loaded = load_export(path)
+    assert set(loaded) == set(CLIPS)
+    assert summarize(score_all(loaded, FallThresholds())) == summarize(score_all(CLIPS, FallThresholds()))
+    assert path.stat().st_size < 200_000  # skeletons only: a few KB per second of video
+
+
+def test_main_replays_an_export_with_diagnostics(tmp_path, capsys):
+    from cv_engine.eval_clips import export_clips
+
+    path = tmp_path / "real.json.gz"
+    export_clips(CLIPS, path, "yolov8n-pose.pt")
+    main(["--from-export", str(path)])
+    out = capsys.readouterr().out
+    assert "4 clips: 2 falls, 2 non-falls" in out
+    assert "peak drop" in out and "falls caught 1/2" in out
+
+
+def test_clip_stats_explain_a_fall_and_a_crouch():
+    from cv_engine.eval_clips import clip_stats
+
+    th = FallThresholds()
+    fall = clip_stats(CLIPS["fall_fast"][1], th)
+    assert fall.peak_drop > th.FALL_DROP_VELOCITY and fall.max_torso > 80 and fall.min_height < 0.6
+    crouch = clip_stats(CLIPS["adl_crouch"][1], th)
+    assert crouch.max_torso < th.DOWN_TORSO_MIN_DEG
+
+
+def test_main_needs_exactly_one_source(capsys):
+    with pytest.raises(SystemExit):
+        main([])

@@ -78,6 +78,11 @@ python -m cv_engine.eval_clips path/to/clips --device cuda           # pass/fail
 python -m cv_engine.eval_clips path/to/clips --device cuda --sweep   # + best FallThresholds
 ```
 
+Share results without sharing videos: `--export cv_engine/tests/data/real_clips.json.gz` saves
+only the skeletons (joint positions over time, no images or faces). Commit that file and anyone
+can replay it with `--from-export ... --sweep`. The table also shows each clip's peak hip-drop
+speed, max torso angle and min height, which explains why a clip was missed or fired.
+
 Pose extraction (the GPU-heavy part) runs once per clip and is cached in `path/to/clips/.pose_cache`,
 so re-scoring and the 108-combination sweep take seconds. Keep clips and the cache out of the repo.
 
