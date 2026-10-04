@@ -86,6 +86,19 @@ speed, max torso angle and min height, which explains why a clip was missed or f
 Pose extraction (the GPU-heavy part) runs once per clip and is cached in `path/to/clips/.pose_cache`,
 so re-scoring and the 108-combination sweep take seconds. Keep clips and the cache out of the repo.
 
+## Logs and reports (for the AI Coach)
+
+Each camera writes to `cv_engine/logs/` (gitignored; set `LOG_DIR` to change it):
+
+- `<camera_id>.log`: everything the terminal shows, rotated at 5 MB x 5 files
+- `<camera_id>-YYYY-MM-DD.events.jsonl`: one JSON line per fall (with `detection`), post-fall
+  outcome, vision change, camera connect/disconnect and session start/stop. No images or video.
+
+```powershell
+python -m cv_engine.report                     # falls per zone, outcomes, unresponsive list, by hour
+python -m cv_engine.report --since 2026-10-04 --json   # machine-readable, e.g. for the Coach
+```
+
 ## Settings (`cv_engine/.env` or environment variables)
 
 | Variable | Default | Notes |
