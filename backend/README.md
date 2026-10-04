@@ -17,6 +17,27 @@ storage. It retains a labeled resolved probe incident, reports one observed broa
 always forces dry-run SMS and the local Coach summary. This is a backend integration probe, not
 proof of the team's physical camera, frontend UI, live Gemini, or SMS delivery. It stops its server on exit.
 
+For live Gemini acceptance, configure `GEMINI_API_KEY` and `GEMINI_MODEL`, then run
+`python -m app.verify_coach`. It creates and resolves one labeled simulated incident, makes two
+Gemini requests (the incident's zone and an empty zone), checks source IDs/citation and live mode,
+and prints both answers for factual review. It always disables SMS. Missing credentials return
+`blocked`; mocked tests do not count as live acceptance. Simulated records are explicitly labeled
+in the model context; blocked, truncated, or malformed provider answers return HTTP 502.
+
+To verify Dev 1's actual sender, install `requirements-integration.txt` in the backend virtual environment,
+then run `python -m app.verify_cv_integration` from `backend/`. This imports the merged
+`cv_engine.transport.emitter.TelemetryEmitter`, sends a synthetic `FallEvent` through its real REST
+queue, and verifies the dashboard WebSocket broadcast, duplicate replay, heartbeat handling, and
+preserved snapshot URL/metadata against configured storage. It forces dry-run SMS and resolves the
+retained probe incident. No GPU, camera access, model download, or video recording is needed.
+Run the combined suite with `python -m pytest -q tests ../cv_engine/tests/test_emitter.py`.
+
+Dev 1's current engine uses `POST /api/v1/telemetry` with `X-API-Key`; the dashboard receives
+`/ws/incidents` events. Camera WebSocket ingestion also exists, but no CV transport rewrite is required.
+For physical rehearsal, Dev 1 sets `BACKEND_URL` to the backend laptop's LAN address and copies the
+matching `API_KEY` into `cv_engine/.env`, then restarts the CV process. Verify one manual trigger first,
+then a safely staged detection, and confirm the dashboard incident ID and database record match.
+
 ## Run locally (Python 3.12)
 
 From `backend/`, in PowerShell:

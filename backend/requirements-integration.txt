@@ -1,0 +1,4 @@
+-r requirements-dev.txt
+# Import Dev 1's real telemetry sender without installing camera/GPU dependencies.
+requests>=2.31,<3
+numpy>=1.26,<3

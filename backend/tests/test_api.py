@@ -141,11 +141,15 @@ def test_twilio_response_persisted(settings, provider_status, expected):
         calls.append(request)
         assert request.url.host == "api.twilio.com"
         assert b"To=%2B15555550123" in request.content
-        return httpx.Response(provider_status, json={"sid": "SMtest", "status": "queued"})
+        response_body = {"sid": "SMtest", "status": "queued"} if provider_status < 400 else {"code": 21606}
+        return httpx.Response(provider_status, json=response_body)
     with TestClient(create_app(settings, transport=httpx.MockTransport(handler)), headers={"X-API-Key": "test-key"}) as client:
         payload = event()
         record = client.post("/api/v1/telemetry", json=payload).json()["incident"]
         assert record["sms_status"] == expected
+        if expected == "failed":
+            assert record["sms_results"] == [{"status": "failed", "recipient": "+15555550123",
+                "error": "provider_rejected_request", "provider_code": "21606"}]
         client.post("/api/v1/telemetry", json=payload)
         assert len(calls) == 1
 

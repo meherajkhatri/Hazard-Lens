@@ -89,7 +89,7 @@ async def exercise(base_url, api_key, result):
                 "resolution_broadcast")
 
 
-def verify(settings):
+def verify(settings, exercise_fn=exercise):
     result = {"status": "failed", "storage": settings.storage, "sms_mode": "dry_run",
         "coach_mode": "local_summary", "probe_id": str(uuid4()), "checks": [],
         "transport": "real_uvicorn_http_and_websockets"}
@@ -123,7 +123,7 @@ def verify(settings):
                     time.sleep(.1)
                 else:
                     raise VerificationFailure("server_start_timeout")
-            asyncio.run(exercise(base_url, key, result))
+            asyncio.run(exercise_fn(base_url, key, result))
             result["status"] = "passed"
         except VerificationFailure as exc:
             result["error"] = str(exc)

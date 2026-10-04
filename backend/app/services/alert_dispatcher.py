@@ -21,7 +21,14 @@ class AlertDispatcher:
             # A timeout can occur after Twilio accepts a message. Do not retry blindly.
             return {"status": "unknown", "recipient": alert.recipient, "error": "provider_connection_error"}
         if response.is_error:
-            return {"status": "failed", "recipient": alert.recipient, "error": "provider_rejected_request"}
+            result = {"status": "failed", "recipient": alert.recipient, "error": "provider_rejected_request"}
+            try:
+                provider_code = response.json().get("code")
+                if isinstance(provider_code, (int, str)):
+                    result["provider_code"] = str(provider_code)
+            except (ValueError, AttributeError, TypeError):
+                pass
+            return result
         try:
             data = response.json()
             return {"status": str(data["status"]), "recipient": alert.recipient, "sid": str(data["sid"])}
