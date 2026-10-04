@@ -16,6 +16,7 @@ Closing the preview window also stops the engine; so does Ctrl+C in the terminal
 
 import argparse
 import dataclasses
+import json
 import logging
 import socket
 import time
@@ -192,6 +193,7 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument("--zone-id", help='override ZONE_ID, e.g. "Forklift Corridor"')
     parser.add_argument("--camera-index", type=int, help="override CAMERA_INDEX (see --list-cameras)")
     parser.add_argument("--camera-url", help="network stream from a phone camera app, instead of --camera-index")
+    parser.add_argument("--public-host", help="CV host address reachable by dashboard laptops; no credentials")
     parser.add_argument("--port", type=int, help="override STREAM_PORT; each camera needs its own")
     parser.add_argument("--list-cameras", action="store_true", help="show which camera indexes work, then exit")
     return parser.parse_args(argv)
@@ -204,6 +206,7 @@ def apply_overrides(cfg: EngineConfig, args: argparse.Namespace) -> EngineConfig
         "CAMERA_INDEX": args.camera_index,
         "CAMERA_URL": args.camera_url,
         "STREAM_PORT": args.port,
+        "PUBLIC_HOST": args.public_host,
         "DEVICE": args.device,
     }
     return dataclasses.replace(cfg, **{k: v for k, v in overrides.items() if v is not None})
@@ -226,6 +229,14 @@ def main(argv=None) -> None:
 
     cfg = apply_overrides(EngineConfig(), args)
     logging.basicConfig(level=logging.INFO, format=f"%(asctime)s {cfg.CAMERA_ID} %(levelname)s %(message)s")
+    if cfg.CAMERA_AUTH not in {"basic", "digest"}:
+        raise SystemExit("CAMERA_AUTH must be basic or digest")
+    try:
+        camera_headers = json.loads(cfg.CAMERA_HTTP_HEADERS)
+        if not isinstance(camera_headers, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in camera_headers.items()):
+            raise ValueError()
+    except (ValueError, TypeError):
+        raise SystemExit("CAMERA_HTTP_HEADERS must be a JSON object of header names and string values") from None
     device = usable_device(cfg.DEVICE)
 
     log.info("loading %s on %s", cfg.MODEL_PATH, device)
@@ -248,8 +259,8 @@ def main(argv=None) -> None:
         camera = None
     else:
         capture = None
-        source = cfg.CAMERA_URL or f"camera index {cfg.CAMERA_INDEX}"
-        opener = (lambda: open_stream(cfg.CAMERA_URL)) if cfg.CAMERA_URL else (lambda: open_camera(cfg.CAMERA_INDEX))
+        source = f"HTTP/IP camera {cfg.CAMERA_ID}" if cfg.CAMERA_URL else f"camera index {cfg.CAMERA_INDEX}"
+        opener = (lambda: open_stream(cfg.CAMERA_URL, username=cfg.CAMERA_USERNAME, password=cfg.CAMERA_PASSWORD, auth_type=cfg.CAMERA_AUTH, headers=camera_headers)) if cfg.CAMERA_URL else (lambda: open_camera(cfg.CAMERA_INDEX))
         camera = LiveCamera(opener, source)
         if not camera.open():
             log.warning("could not open %s yet; will keep retrying", source)

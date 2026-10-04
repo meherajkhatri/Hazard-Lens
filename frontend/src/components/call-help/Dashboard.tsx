@@ -3,15 +3,20 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Activity, MapPin, ShieldCheck } from "lucide-react";
 import { MotionConfig } from "framer-motion";
 import { fetchIncidents, request, updateIncident } from "@/lib/call-help/api";
+import { configuredCameras } from "@/lib/call-help/cameras";
 import { mergeIncident, type Incident, type Zone } from "@/lib/call-help/types";
 import { ActiveIncidentCard, AISafetyInsights, AlertToast, IncidentDrawer, IncidentTimeline, LiveCameraPanel, SafetyStats, TopNav, ZoneStatusPanel } from "./Panels";
 import "./dashboard.css";
 
+const cameras = configuredCameras();
+type Selection = { zoneId: string; cameraId: string | null; incidentId?: string };
 type Toast = { title: string; message: string; critical?: boolean };
 export default function Dashboard() {
   const [incidents, setIncidents] = useState<Incident[]>([]);
-  const [selectedZone, setSelectedZone] = useState(process.env.NEXT_PUBLIC_CAMERA_ZONE || "Zone 1");
-  const [selectedCameraId, setSelectedCameraId] = useState<string | null>(null);
+  const [selection, setSelection] = useState<Selection | null>(null);
+  const selectedZone = selection?.zoneId || cameras[0]?.zone || process.env.NEXT_PUBLIC_CAMERA_ZONE || "Zone 1";
+  const selectedCameraId = selection ? selection.cameraId : cameras[0]?.id || null;
+  const focusIncident = (row: Incident) => setSelection({ zoneId: row.zone_id, cameraId: row.camera_id, incidentId: row.incident_id });
   const [drawerId, setDrawerId] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
   const [connection, setConnection] = useState("Connecting to backend…");
@@ -25,15 +30,12 @@ export default function Dashboard() {
   const seen = useRef(new Set<string>());
   const revision = useRef(0);
   const today = incidents.filter(row => now && new Date(row.detected_at).toDateString() === now.toDateString());
-  const zones: Zone[] = [...new Set([process.env.NEXT_PUBLIC_CAMERA_ZONE || "Zone 1", "Zone 2", "Forklift Corridor", ...incidents.map(row => row.zone_id)])].map(id => ({
+  const zones: Zone[] = [...new Set([selectedZone, ...cameras.map(camera => camera.zone), ...incidents.map(row => row.zone_id)])].map(id => ({
     id, name: id, incidentsToday: today.filter(row => row.zone_id === id).length,
     status: incidents.some(row => row.zone_id === id && row.status !== "resolved") ? "critical" : "normal",
   }));
-  const activeIncident = incidents.find(row => row.zone_id === selectedZone && row.status !== "resolved")
-    || incidents.find(row => row.status !== "resolved");
-  const displayedCameraIncident = selectedCameraId
-    ? incidents.find(row => row.camera_id === selectedCameraId && row.status !== "resolved") || activeIncident
-    : activeIncident;
+  const activeIncident = incidents.find(row => row.incident_id === selection?.incidentId)
+    || incidents.find(row => row.zone_id === selectedZone && (!selectedCameraId || row.camera_id === selectedCameraId) && row.status !== "resolved");
   const zone = zones.find(row => row.id === selectedZone) || zones[0];
   useEffect(() => {
     const tick = () => setNow(new Date());
@@ -60,6 +62,8 @@ export default function Dashboard() {
         if (startRevision !== revision.current) { void refresh(); return; }
         rows.forEach(row => seen.current.add(row.incident_id));
         setIncidents(rows); setError("");
+        const latest = rows.find(row => row.status !== "resolved");
+        if (latest) setSelection(current => current || { zoneId: latest.zone_id, cameraId: latest.camera_id, incidentId: latest.incident_id });
       } catch (e) { if (!disposed) setError(e instanceof Error ? e.message : "Unable to load incidents"); }
     }
     async function health() {
@@ -81,8 +85,7 @@ export default function Dashboard() {
       setIncidents(previous => mergeIncident(previous, row));
       if (event.type === "incident.created" && !seen.current.has(row.incident_id)) {
         seen.current.add(row.incident_id);
-        setSelectedZone(row.zone_id);
-        setSelectedCameraId(row.camera_id);
+        focusIncident(row);
         setToast({ title: "New incident detected", message: `${row.description} · ${row.zone_id}`, critical: row.severity === "high" });
         const context = audio.current;
         if (context?.state === "running") {
@@ -120,9 +123,16 @@ export default function Dashboard() {
     <main className="dashboard">
       <div className="dashboard-intro"><div><div className="eyebrow"><span/> LIVE OPERATIONS</div><h1>Safety command center<span>.</span></h1><p>Real-time awareness. Faster response. Safer people.</p></div><div className="facility-label"><MapPin size={19}/><b>{zone.name}</b></div></div>
       <div className="operation-strip"><div><ShieldCheck size={15}/><b>{connection}</b></div><button className="button secondary" onClick={toggleSound}>{sound ? "Mute alerts" : "Enable alert sound"}</button></div>
+      {cameras.length > 0 && <label className="camera-selector">Camera <select aria-label="Select camera" value={selectedCameraId || ""} onChange={event => {
+        const camera = cameras.find(row => row.id === event.target.value);
+        if (camera) setSelection({ zoneId: camera.zone, cameraId: camera.id });
+      }}>
+        {!cameras.some(camera => camera.id === selectedCameraId) && <option value={selectedCameraId || ""}>{selectedCameraId || "No mapped camera"}</option>}
+        {cameras.map(camera => <option key={camera.id} value={camera.id}>{camera.id} · {camera.zone}</option>)}
+      </select></label>}
       {error && <p role="alert" className="integration-error">{error} · Displayed records may be stale.</p>}
-      <div className="primary-grid"><LiveCameraPanel zone={zone} cameraId={selectedCameraId || activeIncident?.camera_id || null} incident={displayedCameraIncident}/><ActiveIncidentCard incident={activeIncident} pending={pending} onAcknowledge={() => activeIncident && void changeStatus(activeIncident.incident_id, "acknowledged")} onCamera={() => { if (activeIncident) { setSelectedZone(activeIncident.zone_id); setSelectedCameraId(activeIncident.camera_id); } document.getElementById("live-camera")?.scrollIntoView({ behavior: "smooth" }); }}/></div>
-      <div className="secondary-grid"><ZoneStatusPanel zones={zones} selected={selectedZone} onSelect={row => { setSelectedZone(row.id); setSelectedCameraId(incidents.find(incident => incident.zone_id === row.id && incident.status !== "resolved")?.camera_id || null); }}/><SafetyStats incidents={today}/><IncidentTimeline incidents={incidents} onSelect={row => { setDrawerId(row.incident_id); setSelectedZone(row.zone_id); setSelectedCameraId(row.camera_id); }}/></div>
+      <div className="primary-grid"><LiveCameraPanel zone={zone} cameraId={selectedCameraId} incident={activeIncident}/><ActiveIncidentCard incident={activeIncident} pending={pending} onAcknowledge={() => activeIncident && void changeStatus(activeIncident.incident_id, "acknowledged")} onCamera={() => { if (activeIncident) { focusIncident(activeIncident); } document.getElementById("live-camera")?.scrollIntoView({ behavior: "smooth" }); }}/></div>
+      <div className="secondary-grid"><ZoneStatusPanel zones={zones} selected={selectedZone} onSelect={row => { const incident = incidents.find(item => item.zone_id === row.id && item.status !== "resolved"); if (incident) focusIncident(incident); else setSelection({ zoneId: row.id, cameraId: cameras.find(camera => camera.zone === row.id)?.id || null }); }}/><SafetyStats incidents={today}/><IncidentTimeline incidents={incidents} onSelect={row => { setDrawerId(row.incident_id); focusIncident(row); }}/></div>
       <AISafetyInsights zone={selectedZone}/>
       <footer className="dashboard-footer"><span><Activity size={12}/> CALL-HELP</span><span>{mode}</span></footer>
     </main>

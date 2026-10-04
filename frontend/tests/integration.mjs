@@ -32,7 +32,7 @@ test('CV telemetry → live dashboard → persisted actions → scoped Coach', {
   }
   const backendEnv = {
     API_KEY: key, STORAGE_BACKEND: 'sqlite', SQLITE_PATH: resolve(temp, 'test.sqlite3'),
-    SMS_MODE: 'dry_run', SMS_RECIPIENTS: '+15555550123', GEMINI_API_KEY: '',
+    PYTHON_DOTENV_DISABLED: '1', ALERT_PROVIDER: 'twilio', SMS_MODE: 'dry_run', SMS_RECIPIENTS: '+15555550123', GEMINI_API_KEY: '',
     GEMINI_MODEL: '', ALERT_COOLDOWN_SECONDS: '0',
   };
   let reader;
