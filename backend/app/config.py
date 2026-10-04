@@ -36,17 +36,7 @@ class Settings:
             cors_origins=csv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000"),
             supabase_url=os.getenv("SUPABASE_URL", "").rstrip("/"),
             supabase_key=os.getenv("SUPABASE_SECRET_KEY", ""),
-<<<<<<< Updated upstream
-            sms_mode=os.getenv("SMS_MODE", "dry_run"),
-            sms_channel=os.getenv("SMS_CHANNEL", "sms"),
-            alert_provider=os.getenv("ALERT_PROVIDER", "twilio"),
-            twilio_sid=os.getenv("TWILIO_ACCOUNT_SID", ""),
-            twilio_token=os.getenv("TWILIO_AUTH_TOKEN", ""),
-            twilio_from=os.getenv("TWILIO_FROM_NUMBER", ""),
-            sms_recipients=csv("SMS_RECIPIENTS"),
-=======
             alert_provider=os.getenv("ALERT_PROVIDER", "none"),
->>>>>>> Stashed changes
             brevo_smtp_login=os.getenv("BREVO_SMTP_LOGIN", ""),
             brevo_smtp_key=os.getenv("BREVO_SMTP_KEY", ""),
             brevo_from_email=os.getenv("BREVO_FROM_EMAIL", ""),
@@ -62,21 +52,9 @@ class Settings:
         if self.storage not in {"sqlite", "supabase"}:
             raise ValueError("STORAGE_BACKEND must be sqlite or supabase")
         if self.storage == "supabase" and not (self.supabase_url.startswith("https://") and self.supabase_key):
-<<<<<<< Updated upstream
-            raise ValueError("Supabase requires an HTTPS URL and a server secret key")
-        if self.sms_channel not in {"sms", "whatsapp"}:
-            raise ValueError("SMS_CHANNEL must be sms or whatsapp")
-        if self.sms_mode not in {"dry_run", "twilio"}:
-            raise ValueError("SMS_MODE must be dry_run or twilio")
-        if self.alert_provider not in {"twilio", "brevo_email"}:
-            raise ValueError("ALERT_PROVIDER must be twilio or brevo_email")
-        if self.alert_provider == "twilio" and self.sms_mode == "twilio" and not all([self.api_key, self.twilio_sid, self.twilio_token, self.twilio_from, self.sms_recipients]):
-            raise ValueError("Live SMS requires API_KEY, Twilio credentials, sender, and recipients")
-=======
             raise ValueError("Configure SUPABASE_URL (HTTPS) and SUPABASE_SECRET_KEY in backend/.env. For offline development only, explicitly set STORAGE_BACKEND=sqlite and ALERT_PROVIDER=none.")
         if self.alert_provider not in {"none", "brevo_email"}:
             raise ValueError("ALERT_PROVIDER must be none or brevo_email")
->>>>>>> Stashed changes
         if self.alert_provider == "brevo_email" and not all([self.api_key, self.brevo_smtp_login,
             self.brevo_smtp_key, self.brevo_from_email, self.brevo_recipients]):
             raise ValueError("Brevo email requires API_KEY, SMTP credentials, sender, and recipients")

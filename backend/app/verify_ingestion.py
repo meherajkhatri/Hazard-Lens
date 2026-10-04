@@ -11,14 +11,8 @@ from app.main import create_app
 
 
 def verify(settings):
-<<<<<<< Updated upstream
-    # No recipient is contacted, even if the user's normal configuration enables Twilio.
-    settings = replace(settings, sms_mode="dry_run", sms_recipients=["+15555550123"],
-        gemini_key="", api_key=settings.api_key or "isolated-verification-key")
-=======
     settings = replace(settings, alert_provider="none",
         api_key=settings.api_key or "isolated-verification-key")
->>>>>>> Stashed changes
     probe_id = str(uuid4())
     result = {"status": "failed", "storage": settings.storage, "alert_provider": "none",
         "probe_id": probe_id, "checks": [], "transport": "in_process_fastapi_with_real_storage"}
