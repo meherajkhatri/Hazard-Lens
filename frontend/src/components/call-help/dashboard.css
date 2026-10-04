@@ -14,3 +14,6 @@
 .coach-answer details { margin-top: 16px; color: #a9b8bc; overflow-wrap: anywhere; }
 .drawer-details b { overflow-wrap: anywhere; min-width: 0; }
 .timeline-top { flex-wrap: wrap; }
+
+.camera-selector { display: flex; align-items: center; gap: 12px; margin: 16px 0; color: #bbc7c4; }
+.camera-selector select { max-width: 100%; min-width: 200px; padding: 9px 12px; border: 1px solid #384443; border-radius: 8px; background: #192225; color: #edf1ef; }

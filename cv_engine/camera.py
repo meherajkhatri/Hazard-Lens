@@ -5,6 +5,10 @@ import logging
 import sys
 import time
 from collections.abc import Callable
+from urllib.parse import urlsplit, urlunsplit, unquote
+
+import requests
+from requests.auth import HTTPBasicAuth, HTTPDigestAuth
 
 import cv2
 import numpy as np
@@ -26,10 +30,77 @@ def open_camera(index: int) -> cv2.VideoCapture:
     return capture
 
 
-def open_stream(url: str) -> cv2.VideoCapture:
-    """A phone camera app's stream, e.g. http://192.168.1.23:8080/video."""
+class MjpegCapture:
+    """HTTP MJPEG input with private Basic/Digest credentials or API-key headers.
+
+    Implements the small VideoCapture interface used by LiveCamera. No source
+    URL, response body, authentication data, or raw exception is logged.
+    """
+    MAX_BUFFER = 4 * 1024 * 1024
+
+    def __init__(self, url, *, username="", password="", auth_type="basic", headers=None):
+        self._session = requests.Session()
+        self._response = None
+        self._chunks = iter(())
+        self._buffer = bytearray()
+        self._opened = False
+        parsed = urlsplit(url)
+        if parsed.username is not None:
+            username = username or unquote(parsed.username)
+            password = password or unquote(parsed.password or "")
+            url = urlunsplit((parsed.scheme, parsed.netloc.rsplit("@", 1)[-1], parsed.path, parsed.query, ""))
+        auth = (HTTPDigestAuth if auth_type == "digest" else HTTPBasicAuth)(username, password) if username else None
+        try:
+            self._response = self._session.get(url, auth=auth, headers=headers or {}, stream=True,
+                timeout=(3, 5), allow_redirects=False)
+            self._response.raise_for_status()
+            content_type = self._response.headers.get("Content-Type", "").lower()
+            if self._response.status_code != 200 or not any(value in content_type for value in
+                ("multipart/x-mixed-replace", "image/jpeg", "application/octet-stream")):
+                self.release()
+                return
+            self._chunks = self._response.iter_content(chunk_size=4096)
+            self._opened = True
+        except requests.RequestException:
+            self.release()
+
+    def isOpened(self):
+        return self._opened
+
+    def read(self):
+        if not self._opened:
+            return False, None
+        try:
+            while True:
+                start = self._buffer.find(b"\xff\xd8")
+                end = self._buffer.find(b"\xff\xd9", start + 2) if start >= 0 else -1
+                if end >= 0:
+                    data = bytes(self._buffer[start:end + 2])
+                    del self._buffer[:end + 2]
+                    frame = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+                    return frame is not None, frame
+                if start > 0:
+                    del self._buffer[:start]
+                if len(self._buffer) > self.MAX_BUFFER:
+                    self.release()
+                    return False, None
+                self._buffer.extend(next(self._chunks))
+        except (requests.RequestException, StopIteration):
+            self.release()
+            return False, None
+
+    def release(self):
+        self._opened = False
+        if self._response is not None:
+            self._response.close()
+        self._session.close()
+
+
+def open_stream(url: str, *, username="", password="", auth_type="basic", headers=None):
+    """HTTP/MJPEG uses requests for authentication; RTSP retains OpenCV."""
+    if urlsplit(url).scheme in {"http", "https"}:
+        return MjpegCapture(url, username=username, password=password, auth_type=auth_type, headers=headers)
     capture = cv2.VideoCapture(url, cv2.CAP_FFMPEG)
-    # Keep only the newest frame so a slow network doesn't build up delay.
     capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
     return capture
 
