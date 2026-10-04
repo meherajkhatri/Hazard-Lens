@@ -120,6 +120,9 @@ Open `http://localhost:3000`. Stop services with `Control + C` in each terminal.
   frontend for HTTPS; `deploy/Caddyfile.example` provides a starting point.
   Keep backend and CV ports private.
 - Back up SQLite data and incident snapshots with `tools/backup_data.sh`.
+  Each backup now includes `MANIFEST.sha256`; the command fails instead of
+  silently creating an empty backup, so verify the manifest before deleting
+  older copies.
   On macOS, copy `deploy/com.hazardlens.backup.plist.example`, replace
   `REPLACE_ME`, and load it with `launchctl bootstrap gui/$UID`.
 - GitHub Actions runs backend, CV engine, and frontend checks on every push and
@@ -149,8 +152,8 @@ ollama serve
 ## Checks
 
 ```bash
-cd backend && ../.venv/bin/python -m pytest -q
-cd ../cv_engine && ../.venv/bin/python -m pytest -q
+cd backend && PYTHONPATH=. ../.venv/bin/python -m pytest -q
+cd ../cv_engine && PYTHONPATH=. ../.venv/bin/python -m pytest -q
 cd ../frontend && npm run lint && npm run build
 ```
 
