@@ -16,8 +16,7 @@ def create_app(config: ApiConfig | None = None, service: DetectionService | None
 
     @app.get("/api/health")
     def health():
-        body = detector.health()
-        return jsonify(body), 200 if body["model_ready"] else 503
+        return jsonify(detector.health()), 200
 
     @app.post("/api/detect")
     def detect():
