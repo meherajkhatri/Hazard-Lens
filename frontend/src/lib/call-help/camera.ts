@@ -9,9 +9,11 @@ export type DetectionResult = {
   success: boolean;
   person_detected: boolean;
   fall_detected: boolean;
+  near_miss_detected?: boolean;
   confidence: number;
-  status: "normal" | "person_detected" | "possible_fall" | "fall_detected";
+  status: "normal" | "person_detected" | "possible_fall" | "near_miss" | "fall_detected";
   people: CameraPerson[];
+  vehicles?: { bbox: [number, number, number, number] }[];
   frame: { width: number; height: number };
   inference_ms: number;
   emergency_mode: boolean;
