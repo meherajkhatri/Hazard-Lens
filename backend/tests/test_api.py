@@ -164,6 +164,48 @@ def test_twilio_timeout_not_reported_as_sent(settings):
         assert record["sms_status"] == "unknown"
 
 
+class FakeSMTP:
+    def __init__(self, calls, host, port, timeout):
+        self.calls = calls
+        self.calls.append(("connect", host, port, timeout))
+
+    def ehlo(self):
+        self.calls.append(("ehlo",))
+
+    def starttls(self, context):
+        self.calls.append(("starttls", bool(context)))
+
+    def login(self, login, key):
+        self.calls.append(("login", login, key))
+
+    def send_message(self, message):
+        self.calls.append(("message", message["To"], message["Subject"], message.get_content()))
+
+    def quit(self):
+        self.calls.append(("quit",))
+
+
+def test_brevo_email_alert_and_fall_dispatch(settings):
+    settings.alert_provider = "brevo_email"
+    settings.brevo_smtp_login, settings.brevo_smtp_key = "login@smtp-brevo.com", "smtp-key"
+    settings.brevo_from_email, settings.brevo_recipients = "alerts@example.com", ["team@example.com"]
+    calls = []
+    smtp_factory = lambda host, port, timeout: FakeSMTP(calls, host, port, timeout)
+    with TestClient(create_app(settings, smtp_factory=smtp_factory), headers={"X-API-Key": "test-key"}) as client:
+        health = client.get("/health").json()
+        assert health["alert_provider"] == "brevo_email"
+        manual = client.post("/api/v1/alerts/email", json={"recipient": "team@example.com",
+            "subject": "CALL_HELP test", "message": "Email route verified"})
+        assert manual.status_code == 200
+        assert manual.json()["channel"] == "email"
+        record = client.post("/api/v1/telemetry", json=event()).json()["incident"]
+        assert record["sms_status"] == "queued"
+        assert record["sms_results"][0]["channel"] == "email"
+        assert "CALL_HELP: possible fall" in calls[-2][3]
+        assert client.post("/api/v1/alerts/email", json={"recipient": "other@example.com",
+            "subject": "blocked", "message": "blocked"}).status_code == 403
+
+
 def test_gemini_context_and_failure(settings):
     import json
     settings.gemini_key, settings.gemini_model = "secret", "test-model"

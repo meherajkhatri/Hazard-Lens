@@ -150,8 +150,8 @@ class Engine:
             if self.streamer:
                 self.streamer.save_snapshot(event_id(self.cfg.CAMERA_ID, event), annotated)
             self.emitter.send(fall_payload(event, self.cfg.CAMERA_ID, self.cfg.ZONE_ID, sent_at, self.snapshot_base_url))
-            log.warning("FALL track=%s conf=%.2f trigger=%s", event.track_id, event.pose_confidence,
-                        "manual" if event.manual else "auto")
+            log.warning("FALL track=%s conf=%.2f trigger=%s detection=%s", event.track_id, event.pose_confidence,
+                        "manual" if event.manual else "auto", event.detection)
 
         if now - self._last_heartbeat_at >= self.cfg.HEARTBEAT_INTERVAL_S:
             self._last_heartbeat_at = now
@@ -173,6 +173,8 @@ class Engine:
                 seconds, outcome = down
                 notes[person.track_id] = f"DOWN {seconds:.0f}s{OUTCOME_NOTES[outcome]}"
                 unresponsive |= outcome is Assessment.UNRESPONSIVE
+            elif (lying := self.detector.lying_seconds(person.track_id, now)) is not None:
+                notes[person.track_id] = f"ON FLOOR {lying:.0f}s"
             elif self._recovered_until.get(person.track_id, 0) > now:
                 notes[person.track_id] = "RECOVERED"
         return notes, unresponsive

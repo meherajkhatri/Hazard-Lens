@@ -15,14 +15,14 @@ from pydantic import AwareDatetime, ValidationError
 
 from app.config import Settings
 from app.realtime import EventHub
-from app.schemas import CoachRequest, FallAssessment, IncidentAlert, IncidentUpdate, SMSAlert, TelemetryEvent
+from app.schemas import CoachRequest, EmailAlert, FallAssessment, IncidentAlert, IncidentUpdate, SMSAlert, TelemetryEvent
 from app.services.alert_dispatcher import AlertDispatcher
 from app.services.coach import SafetyCoach
 from app.services.telemetry import TelemetryService
 from app.storage import SQLiteStore, SupabaseStore
 
 
-def create_app(settings=None, *, transport=None):
+def create_app(settings=None, *, transport=None, smtp_factory=None):
     settings = settings or Settings.from_env()
     settings.validate()
 
@@ -31,7 +31,7 @@ def create_app(settings=None, *, transport=None):
         async with httpx.AsyncClient(timeout=10, transport=transport) as client:
             store = SQLiteStore(settings.sqlite_path) if settings.storage == "sqlite" else SupabaseStore(settings, client)
             hub = EventHub()
-            dispatcher = AlertDispatcher(settings, client)
+            dispatcher = AlertDispatcher(settings, client, smtp_factory=smtp_factory)
             app.state.store = store
             app.state.hub = hub
             app.state.dispatcher = dispatcher
@@ -56,23 +56,9 @@ def create_app(settings=None, *, transport=None):
 
     @app.get("/health")
     async def health():
-        ollama_status = "unreachable"
-        try:
-            response = await app.state.coach.client.get(f"{settings.ollama_url}/api/tags", timeout=3)
-            if response.status_code == 200:
-                names = [item.get("name") for item in response.json().get("models", [])]
-                ollama_status = "ready" if settings.ollama_model in names else "model_missing"
-        except (httpx.HTTPError, ValueError, TypeError, AttributeError):
-            pass
-        return {
-            "status": "ok",
-            "storage": settings.storage,
-            "sms_mode": settings.sms_mode,
-            "coach_mode": "ollama",
-            "coach_model": settings.ollama_model,
-            "ollama_status": ollama_status,
-            "ollama_url": settings.ollama_url,
-        }
+        return {"status": "ok", "storage": settings.storage, "sms_mode": settings.sms_mode,
+            "alert_provider": settings.alert_provider,
+            "coach_mode": "gemini" if settings.gemini_key else "local_summary"}
 
     @router.get("/ready")
     async def ready():
@@ -118,6 +104,14 @@ def create_app(settings=None, *, transport=None):
         if alert.recipient not in settings.sms_recipients:
             raise HTTPException(403, "Recipient is not in SMS_RECIPIENTS")
         return await app.state.dispatcher.send_sms_alert(alert)
+
+    @router.post("/alerts/email")
+    async def email(alert: EmailAlert):
+        if settings.alert_provider != "brevo_email":
+            raise HTTPException(409, "Brevo email alerts are not enabled")
+        if alert.recipient not in settings.brevo_recipients:
+            raise HTTPException(403, "Recipient is not in BREVO_RECIPIENTS")
+        return await app.state.dispatcher.send_email_alert(alert)
 
     @router.post("/coach/chat")
     async def coach(request: CoachRequest):

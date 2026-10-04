@@ -1,0 +1,10 @@
+# ByteTrack settings for fall detection (Ultralytics defaults in comments).
+# People lying down or partly hidden get lower detection scores; with the
+# defaults they were never tracked, so the fall logic never saw them.
+tracker_type: bytetrack
+track_high_thresh: 0.25 # default 0.5: first-pass matching also uses medium-score detections
+track_low_thresh: 0.1   # default 0.1
+new_track_thresh: 0.25  # default 0.6: a lying person (score ~0.4) can start a track
+track_buffer: 60        # default 30: keep a briefly hidden person's ID for ~2s at 30 FPS
+match_thresh: 0.8       # default 0.8
+fuse_score: True        # default True

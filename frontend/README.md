@@ -44,13 +44,18 @@ In frontend/.env.local, set:
 ```dotenv
 NEXT_PUBLIC_CAMERA_STREAM_URL=http://CV-LAPTOP-IP:8001/stream
 NEXT_PUBLIC_CAMERA_ZONE=Zone 1
+# Optional: map every CV camera ID to its browser-reachable MJPEG stream.
+NEXT_PUBLIC_CAMERA_STREAMS={"zone-1-cam-1":"http://CV-1-IP:8001/stream","zone-1-cam-2":"http://CV-2-IP:8001/stream"}
 ```
 
-The stream URL must be reachable from the browser, not just the Next.js server.
+`NEXT_PUBLIC_CAMERA_STREAMS` is the multi-camera configuration. When an incident arrives, the
+dashboard automatically selects the stream whose key matches the incident's `camera_id`; selecting
+an incident also focuses its camera. Keep `NEXT_PUBLIC_CAMERA_STREAM_URL` for a single-camera fallback.
+If no live mapping exists but the incident includes `metadata.snapshot_url`, the dashboard shows that
+incident snapshot instead. Stream URLs must be reachable from the browser, not just the Next.js server.
 Restart Next.js after changing configuration; `NEXT_PUBLIC_*` settings are fixed
 at build time for production. HTTPS dashboards require HTTPS camera streams.
-Only the configured zone displays this camera; other zones show an explicit
-unavailable state. Bounding boxes come from the actual annotated MJPEG stream.
+Bounding boxes come from the actual annotated MJPEG stream.
 
 ## Rehearsal
 

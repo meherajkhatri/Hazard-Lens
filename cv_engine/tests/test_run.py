@@ -267,3 +267,12 @@ def test_window_closed_detects_closed_or_missing_window(monkeypatch):
 
     monkeypatch.setattr(run.cv2, "getWindowProperty", missing)
     assert run.window_closed("Call-Help cam")
+
+
+def test_on_floor_label_shows_while_counting_toward_found_down():
+    engine, _, _, clock = make_engine(lambda t: [make_pose(1, hip_y=400 + 0.5 * BODY_PX, angle_deg=85)])
+    for i in range(4 * FPS):
+        clock["t"] = i / FPS
+        engine.process(FRAME, clock["t"])
+    notes, _ = engine._post_fall_notes(clock["t"])
+    assert notes[1].startswith("ON FLOOR 3s") or notes[1].startswith("ON FLOOR 4s")

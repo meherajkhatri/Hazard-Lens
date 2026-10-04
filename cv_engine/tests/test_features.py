@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from cv_engine.detector.features import compute_features, drop_velocity
-from cv_engine.detector.types import L_ANKLE, R_ANKLE, R_SHOULDER, PersonPose
+from cv_engine.detector.types import L_ANKLE, L_SHOULDER, R_ANKLE, R_HIP, R_SHOULDER, PersonPose
 from cv_engine.tests.synthetic import BODY_PX, TORSO_PX, make_pose
 
 
@@ -56,9 +56,20 @@ def test_drop_velocity_ignores_upward_movement_and_stale_samples():
     assert drop_velocity([(0.0, high)], now=2.0, current=low, window_s=0.6) == 0.0
 
 
-def test_one_unreliable_joint_lowers_keypoint_conf():
+def test_one_hidden_side_still_measures_from_the_visible_side():
+    """Side-on or blocked by another person: the far shoulder and hip are hidden."""
+    full = compute_features(make_pose(angle_deg=85))
+    person = make_pose(angle_deg=85)
+    person.keypoints[[R_SHOULDER, R_HIP], 2] = 0.0
+    person.keypoints[R_SHOULDER, :2] += 200  # junk position must not bend the angle
+    one_side = compute_features(person)
+    assert one_side.keypoint_conf == pytest.approx(0.9)
+    assert one_side.torso_angle_deg == pytest.approx(full.torso_angle_deg, abs=8)
+
+
+def test_no_reliable_shoulder_or_hip_makes_pose_unusable():
     person = make_pose()
-    person.keypoints[R_SHOULDER, 2] = 0.3
+    person.keypoints[[L_SHOULDER, R_SHOULDER], 2] = 0.3
     assert compute_features(person).keypoint_conf == pytest.approx(0.3)
 
 

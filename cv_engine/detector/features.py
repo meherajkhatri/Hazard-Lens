@@ -17,6 +17,8 @@ from cv_engine.detector.types import (
 )
 
 ANKLE_MIN_CONF = 0.3
+# A shoulder or hip counts as visible from this confidence (same as MIN_KEYPOINT_CONF).
+JOINT_MIN_CONF = 0.4
 # Shoulder-hip distance is roughly 1/3 of standing height.
 TORSO_TO_BODY_RATIO = 3.0
 # Guard against ankles mis-detected near the hips shrinking body_scale.
@@ -25,13 +27,15 @@ MIN_TORSO_PX = 1.0
 MIN_DROP_DT_S = 0.1
 
 
-def _midpoint(kps: np.ndarray, a: int, b: int) -> np.ndarray:
-    return (kps[a, :2] + kps[b, :2]) / 2.0
+def _pair_point(kps: np.ndarray, a: int, b: int) -> tuple[np.ndarray, float]:
+    """Middle of a left/right joint pair, using only the visible side when the other
+    is hidden (side-on, or blocked by another person). Returns (point, confidence)."""
+    visible = [i for i in (a, b) if kps[i, 2] >= JOINT_MIN_CONF] or [a, b]
+    return kps[visible, :2].mean(axis=0), float(kps[[a, b], 2].max())
 
 
-def _body_scale(kps: np.ndarray, torso_length: float, bbox_diagonal: float) -> float:
+def _body_scale(kps: np.ndarray, shoulder_mid: np.ndarray, torso_length: float, bbox_diagonal: float) -> float:
     ankles = [i for i in (L_ANKLE, R_ANKLE) if kps[i, 2] >= ANKLE_MIN_CONF]
-    shoulder_mid = _midpoint(kps, L_SHOULDER, R_SHOULDER)
     if ankles:
         ankle_point = kps[ankles, :2].mean(axis=0)
         measured = float(np.linalg.norm(shoulder_mid - ankle_point))
@@ -44,8 +48,8 @@ def _body_scale(kps: np.ndarray, torso_length: float, bbox_diagonal: float) -> f
 def compute_features(person: PersonPose) -> PoseFeatures | None:
     """Return PoseFeatures, or None when the pose is too degenerate to measure."""
     kps = person.keypoints
-    shoulder_mid = _midpoint(kps, L_SHOULDER, R_SHOULDER)
-    hip_mid = _midpoint(kps, L_HIP, R_HIP)
+    shoulder_mid, shoulder_conf = _pair_point(kps, L_SHOULDER, R_SHOULDER)
+    hip_mid, hip_conf = _pair_point(kps, L_HIP, R_HIP)
 
     torso = shoulder_mid - hip_mid
     torso_length = float(np.linalg.norm(torso))
@@ -59,13 +63,14 @@ def compute_features(person: PersonPose) -> PoseFeatures | None:
     bbox_aspect = (x2 - x1) / max(y2 - y1, 1.0)
     bbox_diagonal = math.hypot(x2 - x1, y2 - y1)
 
-    # Minimum, not mean: one unreliable joint is enough to corrupt the torso angle.
-    keypoint_conf = float(kps[[L_SHOULDER, R_SHOULDER, L_HIP, R_HIP], 2].min())
+    # Needs at least one reliable shoulder AND one reliable hip; unreliable ones are
+    # already left out of the points above, so they can't bend the torso angle.
+    keypoint_conf = min(shoulder_conf, hip_conf)
 
     return PoseFeatures(
         torso_angle_deg=torso_angle_deg,
         bbox_aspect=float(bbox_aspect),
-        body_scale=_body_scale(kps, torso_length, bbox_diagonal),
+        body_scale=_body_scale(kps, shoulder_mid, torso_length, bbox_diagonal),
         hip_y=float(hip_mid[1]),
         keypoint_conf=keypoint_conf,
     )

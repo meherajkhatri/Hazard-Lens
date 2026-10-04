@@ -13,6 +13,21 @@ class TelemetryService:
         self.settings, self.store, self.dispatcher, self.hub = settings, store, dispatcher, hub
         self.lock = asyncio.Lock()
 
+    @staticmethod
+    def _alert_identity(camera_id, metadata):
+        """Cooldown identity for one person/event, not a whole zone.
+
+        `alert_group_id` is optional cross-camera correlation supplied by the CV
+        layer. Without it, a local CV `track_id` identifies one person on one
+        camera. A camera-only fallback keeps legacy senders safe from repeat
+        alerts while never suppressing another camera's independent fall.
+        """
+        group = metadata.get("alert_group_id")
+        if group not in (None, ""):
+            return f"group:{group}"
+        track = metadata.get("track_id")
+        return f"camera:{camera_id}:track:{track}" if track is not None else f"camera:{camera_id}"
+
     async def ingest(self, event):
         if event.event_type == "normal" or event.pose_confidence < self.settings.min_confidence:
             return {"status": "ignored", "reason": "normal_or_below_confidence_threshold"}
@@ -27,11 +42,15 @@ class TelemetryService:
                     raise HTTPException(409, "event_id already belongs to different telemetry")
                 return {"status": "duplicate", "incident": existing.model_dump(mode="json")}
             now = datetime.now(timezone.utc)
-            # Cooldown is per zone, not per camera: two cameras on one zone see the
-            # same fall, and that must be one text, not two.
+            # Distinct people must not hide one another's alerts. A sender may
+            # provide alert_group_id when two cameras have correlated the same
+            # person; otherwise camera_id + track_id is the alert identity.
+            alert_identity = self._alert_identity(event.camera_id, event.metadata)
             recent = await self.store.list(zone_id=event.zone_id,
-                event_type=event.event_type, limit=1, alert_history=True)
-            suppress = any(0 <= (now - row.received_at).total_seconds() < self.settings.cooldown_seconds
+                event_type=event.event_type, limit=100, alert_history=True)
+            suppress = any(
+                self._alert_identity(row.camera_id, row.metadata) == alert_identity and
+                0 <= (now - row.received_at).total_seconds() < self.settings.cooldown_seconds
                 for row in recent)
             sms_status = "not_required"
             if event.event_type == "fall":

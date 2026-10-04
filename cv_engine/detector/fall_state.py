@@ -4,6 +4,7 @@ See docs/dev1-cv-engine-plan.md section 3 for the transition rules. Every
 threshold comes from FallThresholds so it can be tuned without code changes.
 """
 
+import math
 from collections import deque
 from dataclasses import dataclass, field
 
@@ -49,8 +50,16 @@ class _Track:
     down_keypoints: list = field(default_factory=list)
     down_scale: float = 0.0
     outcome: Assessment | None = None
-    # Box height while standing, learned in UPRIGHT; None until first seen upright.
+    # Box height while standing, learned from upright poses only; None until seen upright.
     standing_height: float | None = None
+    # For falls that happen out of view.
+    last_bbox: tuple | None = None
+    last_usable_at: float | None = None
+    last_upright_at: float | None = None
+    falling_since: float | None = None
+    detection: str = "seen_drop"
+    # When an UPRIGHT-state person was first seen lying (for found_down).
+    lying_since: float | None = None
 
 
 def joint_spread(samples: list, body_scale: float) -> float:
@@ -105,6 +114,13 @@ class FallDetector:
         out, self._assessments = self._assessments, []
         return out
 
+    def lying_seconds(self, track_id: int, now: float) -> float | None:
+        """Seconds someone has been lying without a fall being seen (counting toward found_down)."""
+        track = self._tracks.get(track_id)
+        if not track or track.state is not FallState.UPRIGHT or track.lying_since is None:
+            return None
+        return now - track.lying_since
+
     def down_status(self, track_id: int, now: float) -> tuple[float, Assessment | None] | None:
         """(seconds down, outcome so far) for a person who is DOWN after a FallEvent."""
         track = self._tracks.get(track_id)
@@ -151,9 +167,14 @@ class FallDetector:
     def update(self, people: list[PersonPose], now: float) -> list[FallEvent]:
         """Feed one frame. Returns the FallEvents confirmed on this frame."""
         events: list[FallEvent] = []
+        seen_ids = {p.track_id for p in people}
         for person in people:
-            track = self._tracks.setdefault(person.track_id, _Track(last_seen=now))
+            track = self._tracks.get(person.track_id)
+            if track is None:
+                track = self._take_over_lost_track(person, seen_ids, now) or _Track(last_seen=now)
+                self._tracks[person.track_id] = track
             track.last_seen = now
+            track.last_bbox = person.bbox
             features = compute_features(person)
             if features is None or features.keypoint_conf < self.thresholds.MIN_KEYPOINT_CONF:
                 continue
@@ -164,6 +185,23 @@ class FallDetector:
         ttl = self.thresholds.TRACK_TTL_S
         self._tracks = {tid: t for tid, t in self._tracks.items() if now - t.last_seen <= ttl}
         return events
+
+    def _take_over_lost_track(self, person: PersonPose, seen_ids: set[int], now: float) -> _Track | None:
+        """When the tracker gives someone a new ID (often while they fall, as their
+        box changes shape), continue the track they just lost instead of starting
+        blank: their recent movement, standing height and alert state carry over."""
+        th = self.thresholds
+        cx, cy = (person.bbox[0] + person.bbox[2]) / 2, (person.bbox[1] + person.bbox[3]) / 2
+        best_id, best_dist = None, float("inf")
+        for track_id, track in self._tracks.items():
+            if track_id in seen_ids or track.last_bbox is None or now - track.last_seen > th.HANDOVER_MAX_S:
+                continue
+            x1, y1, x2, y2 = track.last_bbox
+            reach = th.HANDOVER_DIST_RATIO * max(y2 - y1, track.standing_height or 0.0)
+            dist = math.hypot((x1 + x2) / 2 - cx, (y1 + y2) / 2 - cy)
+            if dist <= reach and dist < best_dist:
+                best_id, best_dist = track_id, dist
+        return self._tracks.pop(best_id) if best_id is not None else None
 
     def _step(
         self, person: PersonPose, track: _Track, features: PoseFeatures, now: float
@@ -176,37 +214,43 @@ class FallDetector:
 
         height = bbox_height(person)
         collapse = 1.0 - height / track.standing_height if track.standing_height else 0.0
+        down_pose = self._down_pose(features, collapse)
+        upright_pose = (features.torso_angle_deg <= th.UPRIGHT_TORSO_MAX_DEG
+                        and collapse <= 1.0 - th.RECOVER_HEIGHT_RATIO)
+        unseen_gap = track.last_usable_at is not None and now - track.last_usable_at >= th.UNSEEN_DROP_GAP_S
+        recently_upright = track.last_upright_at is not None and now - track.last_upright_at <= th.UNSEEN_DROP_MAX_S
+        track.last_usable_at = now
+        if upright_pose:
+            track.last_upright_at = now
 
         if track.state is FallState.UPRIGHT:
-            # At low browser sampling rates (2-5 FPS), the actual downward velocity
-            # spike can occur entirely between two inference frames. Do not require
-            # that spike if the person is already clearly horizontal/collapsed.
-            horizontal_now = (
-                features.torso_angle_deg >= th.DOWN_TORSO_MIN_DEG
-                and features.bbox_aspect >= th.DOWN_ASPECT_MIN
-            )
-            collapsed_now = collapse >= 1.0 - th.COLLAPSE_HEIGHT_RATIO
-            if velocity >= th.FALL_DROP_VELOCITY or horizontal_now or collapsed_now:
-                track.state = FallState.FALLING
-                track.drop_started_at = now
-                track.peak_drop_velocity = velocity
-                track.horizontal_since = now if (horizontal_now or collapsed_now) else None
-            elif track.standing_height is None:
-                track.standing_height = height
-            else:
-                track.standing_height += STANDING_HEIGHT_ALPHA * (height - track.standing_height)
+            track.lying_since = (track.lying_since or now) if down_pose else None
+            if track.lying_since is not None and now - track.lying_since >= th.FOUND_DOWN_S:
+                # Lying for a long time and no fall was seen: alert anyway, as found_down.
+                track.drop_started_at = track.falling_since = track.lying_since
+                track.peak_drop_velocity = 0.0
+                track.detection = "found_down"
+                track.lying_since = None
+                return self._confirm_down(person, track, features, now, collapse)
+            if velocity >= th.FALL_DROP_VELOCITY:
+                self._start_falling(track, now, drop_started_at=now, velocity=velocity, detection="seen_drop")
+            elif down_pose and unseen_gap and recently_upright:
+                # The drop happened while they were hidden: upright before, down now.
+                self._start_falling(track, now, drop_started_at=track.last_upright_at,
+                                    velocity=th.FALL_DROP_VELOCITY, detection="unseen_drop")
+            elif upright_pose:
+                # Learn standing height from upright poses only, never from someone lying.
+                if track.standing_height is None:
+                    track.standing_height = height
+                else:
+                    track.standing_height += STANDING_HEIGHT_ALPHA * (height - track.standing_height)
             return None
 
         if track.state is FallState.FALLING:
             track.peak_drop_velocity = max(track.peak_drop_velocity, velocity)
-            horizontal = (
-                features.torso_angle_deg >= th.DOWN_TORSO_MIN_DEG
-                and features.bbox_aspect >= th.DOWN_ASPECT_MIN
-            )
-            collapsed = collapse >= 1.0 - th.COLLAPSE_HEIGHT_RATIO
-            if not (horizontal or collapsed):
+            if not down_pose:
                 track.horizontal_since = None
-                if now - track.drop_started_at > th.FALLING_TIMEOUT_S:
+                if now - track.falling_since > th.FALLING_TIMEOUT_S:
                     track.state = FallState.UPRIGHT
                 return None
 
@@ -215,24 +259,7 @@ class FallDetector:
             if now - track.horizontal_since < th.DOWN_CONFIRM_S:
                 return None
 
-            track.state = FallState.DOWN
-            track.upright_since = None
-            self._start_down(track, person, features, now)
-            if track.last_event_at is not None and now - track.last_event_at < th.EVENT_COOLDOWN_S:
-                return None
-            track.last_event_at = now
-            track.fall = FallEvent(
-                track_id=person.track_id,
-                timestamp=now,
-                drop_started_at=track.drop_started_at,
-                pose_confidence=pose_confidence(features, track.peak_drop_velocity, collapse),
-                torso_angle_deg=features.torso_angle_deg,
-                bbox_aspect=features.bbox_aspect,
-                drop_velocity=track.peak_drop_velocity,
-                keypoint_conf=features.keypoint_conf,
-                bbox=person.bbox,
-            )
-            return track.fall
+            return self._confirm_down(person, track, features, now, collapse)
 
         # DOWN: follow up on the fall, and wait for a sustained return to upright.
         # Height must come back too: someone lying toward the camera has an
@@ -260,6 +287,45 @@ class FallDetector:
             still = joint_spread(track.down_keypoints, track.down_scale) <= th.STILL_SPREAD_MAX
             self._assess(track, Assessment.UNRESPONSIVE if still else Assessment.MOVING, now)
         return None
+
+    def _confirm_down(self, person: PersonPose, track: _Track, features: PoseFeatures, now: float,
+                      collapse: float) -> FallEvent | None:
+        """Enter DOWN and emit the FallEvent, unless this person is in cooldown."""
+        th = self.thresholds
+        track.state = FallState.DOWN
+        track.upright_since = None
+        self._start_down(track, person, features, now)
+        if track.last_event_at is not None and now - track.last_event_at < th.EVENT_COOLDOWN_S:
+            return None
+        track.last_event_at = now
+        track.fall = FallEvent(
+            track_id=person.track_id,
+            timestamp=now,
+            drop_started_at=track.drop_started_at,
+            pose_confidence=pose_confidence(features, track.peak_drop_velocity, collapse),
+            torso_angle_deg=features.torso_angle_deg,
+            bbox_aspect=features.bbox_aspect,
+            drop_velocity=track.peak_drop_velocity,
+            keypoint_conf=features.keypoint_conf,
+            bbox=person.bbox,
+            detection=track.detection,
+        )
+        return track.fall
+
+    def _down_pose(self, features: PoseFeatures, collapse: float) -> bool:
+        """Lying flat, or collapsed well below standing height (lying toward the camera)."""
+        th = self.thresholds
+        horizontal = features.torso_angle_deg >= th.DOWN_TORSO_MIN_DEG and features.bbox_aspect >= th.DOWN_ASPECT_MIN
+        return horizontal or collapse >= 1.0 - th.COLLAPSE_HEIGHT_RATIO
+
+    @staticmethod
+    def _start_falling(track: _Track, now: float, drop_started_at: float, velocity: float, detection: str) -> None:
+        track.state = FallState.FALLING
+        track.falling_since = now
+        track.drop_started_at = drop_started_at
+        track.peak_drop_velocity = velocity
+        track.horizontal_since = None
+        track.detection = detection
 
     @staticmethod
     def _start_down(track: _Track, person: PersonPose, features: PoseFeatures, now: float) -> None:

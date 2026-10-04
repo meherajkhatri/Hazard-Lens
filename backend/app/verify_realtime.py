@@ -100,7 +100,8 @@ def verify(settings, exercise_fn=exercise):
     # Pass explicit values so a developer's .env cannot silently enable external SMS/AI calls.
     environment = {**os.environ, "API_KEY": key, "STORAGE_BACKEND": settings.storage,
         "SQLITE_PATH": str(Path(settings.sqlite_path).resolve()), "SUPABASE_URL": settings.supabase_url,
-        "SUPABASE_SECRET_KEY": settings.supabase_key, "SMS_MODE": "dry_run",
+        "SUPABASE_SECRET_KEY": settings.supabase_key, "SMS_MODE": "dry_run", "ALERT_PROVIDER": "twilio",
+        "SMS_CHANNEL": "sms",
         "SMS_RECIPIENTS": "+15555550123", "TWILIO_FROM_NUMBER": "", "GEMINI_API_KEY": "",
         "MIN_CONFIDENCE": "0.7", "ALERT_COOLDOWN_SECONDS": "0"}
     with tempfile.TemporaryFile(mode="w+") as log:

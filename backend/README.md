@@ -87,6 +87,12 @@ The simulator refuses a server using live SMS unless given `--allow-live-sms`.
 - WhatsApp instead of SMS: `SMS_CHANNEL=whatsapp` sends through the Twilio WhatsApp sandbox
   (`TWILIO_FROM_NUMBER` = the sandbox number). Each recipient phone must first send the sandbox's
   "join <code>" message. Free-form text is allowed, unlike trial SMS (error 572006).
+- Brevo email fallback: set `ALERT_PROVIDER=brevo_email`, `BREVO_SMTP_LOGIN`, `BREVO_SMTP_KEY`,
+  `BREVO_FROM_EMAIL`, and comma-separated `BREVO_RECIPIENTS`. Brevo requires a verified sender;
+  `BREVO_SMTP_LOGIN` is its technical login and must not be used as the sender address. Automatic fall
+  alerts are delivered as email and saved with `channel: email`, even though the legacy incident field
+  remains named `sms_status` for frontend compatibility. Use `POST /api/v1/alerts/email` to send a
+  configured-recipient test message.
 - Gemini: set `GEMINI_API_KEY`, `GEMINI_MODEL` to an available `generateContent` model,
   and `API_KEY`. The Coach retrieves at most 50 recent matching incidents and includes IDs in its response.
   This is structured database retrieval, not vector search. Use explicit `zone_id`, `since`, and `until`
@@ -122,10 +128,12 @@ Reusing an ID with different telemetry returns 409. If no ID is supplied, a dete
 from the normalized payload; a changed timestamp represents a new event.
 
 Each qualifying event is persisted and broadcast. Only falls trigger automatic SMS.
-`ALERT_COOLDOWN_SECONDS` (default 30) suppresses additional SMS for the same zone and event type,
-across all cameras in that zone, so two cameras seeing one fall send one text. It does not suppress
-incident records, dashboard events, or post-fall escalations. Set it to 0 if each distinct event
-must alert, including separate people in the same camera view.
+`ALERT_COOLDOWN_SECONDS` (default 30) suppresses repeat alerts for the same person/event, while every
+incident is still stored and broadcast. The CV sender's `track_id` makes two people on one camera alert
+independently. For the same person seen by multiple cameras, send the same optional
+`metadata.alert_group_id` from each feed to produce one alert; without it, each camera alerts
+independently to avoid hiding a possible second fallen worker. Post-fall `unresponsive` escalation
+bypasses the cooldown.
 
 ### Dev 1 handoff and rehearsal
 
