@@ -31,6 +31,7 @@ class ApiConfig:
     vehicle_model_path: str = os.getenv("VEHICLE_MODEL_PATH", "yolov8n.pt")
     near_miss_distance_ratio: float = float(os.getenv("NEAR_MISS_DISTANCE_RATIO", "0.18"))
     near_miss_confirmation_frames: int = int(os.getenv("NEAR_MISS_CONFIRMATION_FRAMES", "2"))
+    near_miss_every_n_frames: int = int(os.getenv("NEAR_MISS_EVERY_N_FRAMES", "2"))
     vehicle_confidence_threshold: float = float(os.getenv("VEHICLE_CONFIDENCE_THRESHOLD", "0.30"))
     emergency_mode: bool = _truthy("EMERGENCY_MODE", "false")
     test_mode: bool = _truthy("TEST_MODE", "true")
@@ -55,3 +56,5 @@ class ApiConfig:
             raise ValueError("FALL_CONFIRMATION_SECONDS must be greater than 0")
         if self.near_miss_confirmation_frames < 1:
             raise ValueError("NEAR_MISS_CONFIRMATION_FRAMES must be at least 1")
+        if self.near_miss_every_n_frames < 1:
+            raise ValueError("NEAR_MISS_EVERY_N_FRAMES must be at least 1")
