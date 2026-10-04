@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { Activity, ArrowRight, Bell, Check, ChevronRight, CircleCheck, Clock3, Expand, LoaderCircle, MapPin, ScanLine, Send, ShieldCheck, Siren, Sparkles, TriangleAlert, Video, X } from "lucide-react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { askCoach } from "@/lib/call-help/api";
-import { imageUrl, resolveCameraStream } from "@/lib/call-help/cameras";
+import { imageUrl, resolveCameraHealth, resolveCameraStream } from "@/lib/call-help/cameras";
 import { eventLabel, type CoachAnswer, type Incident, type Zone } from "@/lib/call-help/types";
 
 const formatTime = (timestamp: string) => new Date(timestamp).toLocaleString();
@@ -16,7 +16,10 @@ export function LiveCameraPanel({ zone, cameraId, incident }: { zone: Zone; came
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [loaded, setLoaded] = useState(false);
+  const [cvStatus, setCvStatus] = useState<"checking" | "connected" | "offline">("checking");
+  const [cvPeople, setCvPeople] = useState<number | null>(null);
   const stream = resolveCameraStream(cameraId, process.env.NEXT_PUBLIC_CAMERA_STREAM_URL);
+  const healthUrl = resolveCameraHealth(stream);
   const snapshot = incident?.camera_id === cameraId ? imageUrl(incident.metadata.snapshot_url) : undefined;
   const [streamFailed, setStreamFailed] = useState(false);
   const source = (!streamFailed && stream) || snapshot;
@@ -27,6 +30,28 @@ export function LiveCameraPanel({ zone, cameraId, incident }: { zone: Zone; came
     document.addEventListener("keydown", key); return () => document.removeEventListener("keydown", key);
   }, [expanded]);
   useEffect(() => { setStreamFailed(false); setFailed(false); setLoaded(false); }, [cameraId, stream, snapshot]);
+  useEffect(() => {
+    let disposed = false;
+    const check = async () => {
+      try {
+        const response = await fetch(healthUrl, { cache: "no-store", signal: AbortSignal.timeout(2500) });
+        if (!response.ok) throw new Error("CV engine health failed");
+        const data = await response.json() as { people_detected?: number };
+        if (!disposed) {
+          setCvStatus("connected");
+          setCvPeople(typeof data.people_detected === "number" ? data.people_detected : null);
+        }
+      } catch {
+        if (!disposed) {
+          setCvStatus("offline");
+          setCvPeople(null);
+        }
+      }
+    };
+    void check();
+    const timer = setInterval(() => void check(), 3000);
+    return () => { disposed = true; clearInterval(timer); };
+  }, [healthUrl]);
   return <section className={`panel camera-panel ${expanded ? "camera-expanded" : ""}`} id="live-camera">
     <div className="panel-heading"><div><h2><Video size={15}/> CAMERA MONITORING</h2><p><MapPin size={12}/>{zone.name}{cameraId ? ` · ${cameraId}` : ""}</p></div><button className="icon-button" aria-label={expanded ? "Exit expanded camera" : "Expand camera"} onClick={() => setExpanded(!expanded)}>{expanded ? <X size={17}/> : <Expand size={16}/>}</button></div>
     <div className="camera-view">
@@ -36,7 +61,7 @@ export function LiveCameraPanel({ zone, cameraId, incident }: { zone: Zone; came
         <img key={`${cameraId || "camera"}-${source}-${attempt}`} src={source} alt={`${showingSnapshot ? "Incident snapshot" : "Annotated CV feed"} for ${cameraId || zone.name}`} className="live-stream" onLoad={() => setLoaded(true)} onError={() => { if (!showingSnapshot && snapshot) setStreamFailed(true); else setFailed(true); setLoaded(false); }}/>
         <span className="scene-label">{loaded ? (showingSnapshot ? "Incident snapshot · not live" : "Live CV camera stream") : "Connecting to camera…"}</span>
       </> : <div className="camera-placeholder"><Video size={36}/><p>{failed ? "Camera feed unavailable" : "No camera feed configured for this incident"}</p>{failed && <button className="button secondary" onClick={() => { setStreamFailed(false); setFailed(false); setLoaded(false); setAttempt(n => n + 1); }}>Reconnect camera</button>}</div>}
-    </div><div className="camera-controls"><div className="vision-status"><ScanLine size={15}/><span>{showingSnapshot ? "Showing the saved incident frame" : "Detection overlays are supplied by the CV engine"}</span>{streamFailed && snapshot && <button className="button secondary" onClick={() => { setStreamFailed(false); setFailed(false); setLoaded(false); setAttempt(n => n + 1); }}>Retry live camera</button>}</div></div>
+    </div><div className="camera-controls"><div className="vision-status"><ScanLine size={15}/><span>{showingSnapshot ? "Showing the saved incident frame" : cvStatus === "connected" ? `CV engine connected${cvPeople !== null ? ` · ${cvPeople} people detected` : ""}` : cvStatus === "offline" ? "CV engine offline — start cv_engine.run" : "Checking CV engine…"}</span>{streamFailed && snapshot && <button className="button secondary" onClick={() => { setStreamFailed(false); setFailed(false); setLoaded(false); setAttempt(n => n + 1); }}>Retry live camera</button>}</div></div>
   </section>;
 }
 export function ActiveIncidentCard({ incident, pending, onAcknowledge, onCamera }: { incident?: Incident; pending: boolean; onAcknowledge: () => void; onCamera: () => void }) {
@@ -69,7 +94,7 @@ export function AISafetyInsights({ zone }: { zone: string }) {
   }
   return <section className="panel ai-panel"><div className="ai-header"><div className="ai-heading"><span className="ai-icon"><Sparkles size={21}/></span><div><h2>AI SAFETY COACH</h2><p>Ask about recorded incidents. Each question retrieves fresh context.</p></div></div></div>
     <form className="coach-form" onSubmit={analyze}><label htmlFor="coach-question">Question</label><textarea id="coach-question" value={question} onChange={e => setQuestion(e.target.value)} maxLength={2000} required rows={3}/><div><label><input type="checkbox" checked={allZones} onChange={e => setAllZones(e.target.checked)}/> All zones</label><span>Scope: {allZones ? "All zones" : zone}</span><button className="button analyze-button" disabled={loading || !question.trim()}>{loading ? <LoaderCircle size={15} className="spin"/> : <Send size={15}/>} {loading ? "Retrieving incidents…" : "Ask Safety Coach"}</button></div></form>
-    <div aria-live="polite">{error && <p role="alert" className="integration-error">{error}</p>}{analysis && <div className="coach-answer"><span className="analysis-eyebrow">{analysis.mode === "gemini" ? "Gemini" : "Local count summary · Gemini not configured"} · {analysis.scope} · {analysis.context_count} records{analysis.truncated ? " · limited to 50 most recent" : ""}</span><h3>{analysis.question}</h3><p>{analysis.answer}</p>{analysis.incident_ids.length > 0 && <details><summary>Source incident IDs</summary><ul>{analysis.incident_ids.map(id => <li key={id}>{id}</li>)}</ul></details>}</div>}</div><div className="ai-disclaimer"><ShieldCheck size={12}/> Observations come from recorded events. Suggested inspections do not establish a cause.</div></section>;
+    <div aria-live="polite">{error && <p role="alert" className="integration-error">{error}</p>}{analysis && <div className="coach-answer"><span className="analysis-eyebrow">{"Ollama · Local AI"} · {analysis.scope} · {analysis.context_count} records{analysis.truncated ? " · limited to 50 most recent" : ""}</span><h3>{analysis.question}</h3><p>{analysis.answer}</p>{analysis.incident_ids.length > 0 && <details><summary>Source incident IDs</summary><ul>{analysis.incident_ids.map(id => <li key={id}>{id}</li>)}</ul></details>}</div>}</div><div className="ai-disclaimer"><ShieldCheck size={12}/> Observations come from recorded events. Suggested inspections do not establish a cause.</div></section>;
 }
 export function IncidentDrawer({ incident, pending, onDismiss, onResolve }: { incident: Incident | null; pending: boolean; onDismiss: () => void; onResolve: (id: string) => void }) {
   const closeRef = useRef<HTMLButtonElement>(null);
