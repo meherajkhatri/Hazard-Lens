@@ -67,10 +67,6 @@ class SafetyCoach:
             "zone_id": request.zone_id,
         }
 
-        # Keep a useful deterministic fallback when Ollama is not running.
-        counts = Counter(row.event_type for row in rows)
-        summary = ", ".join(f"{count} {kind}" for kind, count in sorted(counts.items())) or "no incidents"
-
         payload = {
             "model": self.settings.ollama_model,
             "stream": False,
@@ -95,16 +91,18 @@ class SafetyCoach:
             answer = data.get("message", {}).get("content", "").strip()
             if not answer:
                 raise ValueError("No answer")
+        except httpx.ConnectError:
+            raise HTTPException(
+                503,
+                f"Ollama is not reachable at {self.settings.ollama_url}. Start Ollama and retry.",
+            ) from None
+        except httpx.HTTPStatusError as exc:
+            detail = "Ollama request failed"
+            if exc.response.status_code == 404:
+                detail = f"Ollama model '{self.settings.ollama_model}' is not available"
+            raise HTTPException(502, detail) from None
         except (httpx.HTTPError, ValueError, KeyError, TypeError, AttributeError):
-            return {
-                **result,
-                "mode": "local_summary",
-                "answer": (
-                    f"Local data summary (Ollama unavailable): {summary} in the retrieved records. "
-                    "This is a count summary, not an AI-generated analysis. "
-                    "No cause can be established from these records alone."
-                ),
-            }
+            raise HTTPException(502, "Ollama returned an invalid or empty Safety Coach response") from None
 
         return {
             **result,
