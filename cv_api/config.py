@@ -19,8 +19,19 @@ class ApiConfig:
     port: int = int(os.getenv("CV_API_PORT", "5000"))
     model_path: str = os.getenv("MODEL_PATH", "yolov8n-pose.pt")
     device: str = os.getenv("DEVICE", "auto")
-    fall_confidence_threshold: float = float(os.getenv("FALL_CONFIDENCE_THRESHOLD", "0.75"))
-    fall_confirmation_seconds: float = float(os.getenv("FALL_CONFIRMATION_SECONDS", "1.0"))
+    fall_confidence_threshold: float = float(os.getenv("FALL_CONFIDENCE_THRESHOLD", "0.68"))
+    fall_confirmation_seconds: float = float(os.getenv("FALL_CONFIRMATION_SECONDS", "0.60"))
+    min_keypoint_conf: float = float(os.getenv("MIN_KEYPOINT_CONF", "0.25"))
+    fall_drop_velocity: float = float(os.getenv("FALL_DROP_VELOCITY", "0.28"))
+    down_torso_min_deg: float = float(os.getenv("DOWN_TORSO_MIN_DEG", "45"))
+    down_aspect_min: float = float(os.getenv("DOWN_ASPECT_MIN", "0.75"))
+    collapse_height_ratio: float = float(os.getenv("COLLAPSE_HEIGHT_RATIO", "0.68"))
+
+    near_miss_enabled: bool = _truthy("NEAR_MISS_ENABLED", "true")
+    vehicle_model_path: str = os.getenv("VEHICLE_MODEL_PATH", "yolov8n.pt")
+    near_miss_distance_ratio: float = float(os.getenv("NEAR_MISS_DISTANCE_RATIO", "0.18"))
+    near_miss_confirmation_frames: int = int(os.getenv("NEAR_MISS_CONFIRMATION_FRAMES", "2"))
+    vehicle_confidence_threshold: float = float(os.getenv("VEHICLE_CONFIDENCE_THRESHOLD", "0.30"))
     emergency_mode: bool = _truthy("EMERGENCY_MODE", "false")
     test_mode: bool = _truthy("TEST_MODE", "true")
     camera_id: str = os.getenv("CAMERA_ID", "browser-cam-1")
@@ -42,3 +53,5 @@ class ApiConfig:
             raise ValueError("FALL_CONFIDENCE_THRESHOLD must be between 0 and 1")
         if self.fall_confirmation_seconds <= 0:
             raise ValueError("FALL_CONFIRMATION_SECONDS must be greater than 0")
+        if self.near_miss_confirmation_frames < 1:
+            raise ValueError("NEAR_MISS_CONFIRMATION_FRAMES must be at least 1")
